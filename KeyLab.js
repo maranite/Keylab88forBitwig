@@ -1,10 +1,9 @@
 var kL = null;
 
 // Ideas:
-//  1. ClipLauncher mode for Pads
 //  2. Use transpose buttons for Pad transpose. Will require resetting the transpose value via sysex.
+//  3. Reconfigure Multi-Mode long-press buttons to follow icons at bottom of screen.
 
-// Main KeyLab Object:
 function KeyLab() {
     var kL = this;
 
@@ -29,7 +28,7 @@ function KeyLab() {
         var configMap = [1, 2, 3, 4, 5, 6, 0x40, 0x41];
         var defineControl = function (id, type, name, bank, index, hasLED, config) {
             var idHex = uint7ToHex(id);
-            var config = Array.prototype.slice.call(arguments, 6);
+            var config = [].slice.call(arguments, 6);
             var setValue = function (cmd, val) {
                 var data = "F0 00 20 6B 7F 42 02 00 " + uint7ToHex(cmd) + idHex + uint7ToHex(val) + "F7";
                 sendSysex(data);
@@ -44,6 +43,9 @@ function KeyLab() {
                 "config": { value: config },
                 "configure": {
                     value: function () {
+                        if (arguments.length > 0)
+                            this.config = [].slice.call(arguments);
+
                         for (var i = 0; i < config.length; i++)
                             setValue(configMap[i], config[i]);
 
@@ -129,6 +131,7 @@ function KeyLab() {
             rewind: defineTransport(0x5B, "Rewind", 5),
             forward: defineTransport(0x5C, "Forward", 4),
             loop: defineTransport(0x5D, "Loop", 7),
+            // transpose buttons???
             buttons: [
                 defineButton(0x12, 0, 0x16, 0x68),
                 defineButton(0x13, 1, 0x17, 0x69),
@@ -248,6 +251,11 @@ function KeyLab() {
     var cDevice = host.createEditorCursorDevice(0);
     var browser = cDevice.createDeviceBrowser(1, 1);
     var cBrowser = browser.createCursorSession();
+    var padTrackBank = host.createTrackBank(4, 0, 4);       // Create a trackbank that follows the select track
+    var arranger = host.createArranger();
+    var mixer = host.createMixer();
+    padTrackBank.followCursorTrack(cTrack);
+
     var isPlaying = false;
     var mode = null;
     var setMode = function (value) {
@@ -261,49 +269,157 @@ function KeyLab() {
             mode = value;
             mode.active = true;
             mode.setIndication();
+            sendTextToKeyLab(value.name, "");
             //host.showPopupNotification(value.name);
         }
     };
 
+    var padOps = new (function () {
+        var padOffset = 0;
+        var padsLaunchSlots = false;
+        var padLightsFlipFlop = 0;
+        var slotPlaybackStates = [];
+
+        var setPadLights = function () {
+            if (!padsLaunchSlots) return;
+            padLightsFlipFlop = (padLightsFlipFlop + 1) % 4;
+            for (var i = 0; i < 16; i++)
+                controls.pads[padIndex].isLit = (padLightsFlipFlop & slotPlaybackStates[i]) > 0;
+
+            host.scheduleTask(setPadLights, [], 150);
+        }
+
+        Object.defineProperties(this, {
+            "padOffset": {
+                get: function () { return padOffset; },
+                set: function (value) {
+                    if (value >= 64 || value <= -48) return;
+                    padOffset = value;
+                    var padTranslation = new Array(128);
+                    for (var i = 0; i < 128; i++) {
+                        padTranslation[i] = (value < 0 || value > 127) ? -1 : value;
+                        value++;
+                    }
+                    midiInPads.setKeyTranslationTable(padTranslation);
+                    var prefix = (padOffset >= 0) ? " +" : " ";
+                    host.showPopupNotification("Drum Pad Bank:" + prefix + padOffset);
+                    sendTextToKeyLab("Drum Pad Bank:", prefix + padOffset);
+                }
+            },
+            "padsLaunchSlots": {
+                get: function () { return padsLaunchSlots; },
+                set: function (value) {
+                    padsLaunchSlots = value;
+                    for (var i = 0; i < 16; i++) {
+                        var ctrl = controls.pads[i];
+                        if (value) {
+                            ctrl.configure(8, 10, 0x24 + i, 0, 0x7F, 1);
+                            ctrl.isLit = false;
+                        } else
+                            ctrl.configure(9, 9, 0x24 + i, 0x20, 0x7F, 1);     // Midi note mode
+                    }
+                    if (value) setPadLights();
+
+                    for (var i = 0; i < 4; i++)
+                        padTrackBank.getTrack(i).clipLauncherSlotBank().setIndication(value);
+                }
+            }
+        });
+
+        for (var i = 0; i < 4; i++) {
+            var track = padTrackBank.getTrack(i);
+            var launcherBank = track.clipLauncherSlotBank();
+            launcherBank.addPlaybackStateObserver(
+                function (slotIndex, playbackState, isQueued) {
+                    var padIndex = (slotIndex * 4) + i;
+                    slotPlaybackStates[padIndex] = playbackState == "playing"
+                        ? (isQueued ? 1 : 4)
+                        : (playbackState == "stopping" && isQueued ? 7 : 0);
+                });
+        }
+    })();
+
     var preferModeSwitchesLayout = preferences.getEnumSetting("Switch layout on Sound/Multi", "Behavior", ["Yes", "No"], "No");
 
-    var createMode = (
-        function () {
-            var mode_prototype = {
-                name: "Global Mode",
-                onParamClick: function () { },
-                onValueClick: function () { },
-                onParam: function (inc) { moveCursor(cTrack, inc); },
-                onValue: function (inc) { inc < 0 ? tracks.scrollTracksUp() : tracks.scrollTracksDown(); },
-                onVolume: function (inc) { masterTrack.getVolume().inc(inc, 128); },
-                onButton: function (ctrl) { },
-                onLongButton: function (ctrl) { },
-                onFader: function (ctrl, data) { tracks.getTrack(ctrl.index).getVolume().set(data, 128); },
-                onEncoder: function (ctrl, inc) { },
-                onPad: function (ctrl, isDown) { },
-                onBank: function (bank) {
-                    this.bank = bank;
-                    this.setIndication();
-                },
-                onMode: function (isMulti) {
-                    setMode(isMulti ? MULTI_MODE : SOUND_MODE);
-                    if (preferModeSwitchesLayout.get() == "Yes") {
-                        application.setPanelLayout(isMulti ? "MIX" : "ARRANGE");
-                    }
-                },
-                setIndication: function () { },
-                active: false,
-                bank = 1
-            };
+    var clickable = function (fnClick, fngetIsOn) { return { onClick: fnClick, getIsOn: fngetIsOn }; };
 
-            return function (ctor) {
-                ctor.prototype = Object.create(mode_prototype);
-                return new ctor();
-            };
-        })();
+    var createMode = (function () {
+        var mode_prototype = {
+            name: "Global Mode",
+            onParamClick: function () { },
+            onValueClick: function () { },
+            onParam: function (inc) { moveCursor(cTrack, inc); },
+            onValue: function (inc) { inc < 0 ? tracks.scrollTracksUp() : tracks.scrollTracksDown(); },
+            onVolume: function (inc) { masterTrack.getVolume().inc(inc, 128); },
+            setIndication: function () {
+                if (this.active) {
+                    controls.bank1.isLit = (this.bank & 1) == 1;
+                    controls.bank2.isLit = (this.bank & 2) == 2;
+                    var actions = this.buttonActions;
+                    if (actions !== undefined && actions.length > 0)
+                        for (var i = 0; i < actions.length; i++)
+                            controls.buttons[i].isLit = (actions[i] !== undefined && actions[i].getIsOn !== undefined) ? actions[i].getIsOn() : false;
+                }
+            },
+            onButton: function (ctrl) {
+                if (this.buttonActions === undefined || this.buttonActions.length == 0) return;
+                var action = this.buttonActions[ctrl.index];
+                if (action !== undefined) action.onClick();
+            },
+            onLongButton: function (ctrl) { },
+            onFader: function (ctrl, data) { tracks.getTrack(ctrl.index).getVolume().set(data, 128); },
+            onEncoder: function (ctrl, inc) { },
+            onPad: function (ctrl, isDown) {
+                if (!isDown) return;
+                var track = padTrackBank.getTrack(Math.abs(ctrl.index / 4));
+                var launcherBank = track.clipLauncherSlotBank();
+                launcherBank.select(ctrl.index % 4);
+                var slot = launcherBank.getItemAt(ctrl.index % 4);
+
+                if (slot.isPlaybackQueued().get()) {
+                    launcherBank.returnToArrangement();
+                } else if (slot.isPlaying().get()) {
+                    //launcherBank.stop();
+                    launcherBank.returnToArrangement();
+                } else {
+                    launcherBank.launch(ctrl.index % 4);
+                }
+            },
+            onBank: function (bank) {
+                this.bank = bank;
+                this.setIndication();
+            },
+            onMode: function (isMulti) {
+                setMode(isMulti ? MULTI_MODE : SOUND_MODE);
+                if (preferModeSwitchesLayout.get() == "Yes") {
+                    application.setPanelLayout(isMulti ? "MIX" : "ARRANGE");
+                }
+            },
+            bank: 1,
+            active: false,
+            _buttonActions: []
+        };
+
+        Object.defineProperties(mode_prototype,
+            {
+                "buttonActions": {
+                    get: function () { return this._buttonActions; },
+                    set: function (actions) {
+                        this._buttonActions = actions;
+                        if (this.active) this.setIndication();
+                    }
+                }
+            });
+
+        return function (ctor) {
+            ctor.prototype = mode_prototype;
+            return new ctor();
+        }
+    })();
 
     var SOUND_MODE = createMode(
         function () {
+            var _this = this;
             var cRemote = cDevice.createCursorRemoteControlsPage(8);
             cRemote.pageNames().markInterested();
             //cDevice.isRemoteControlsSectionVisible
@@ -311,7 +427,6 @@ function KeyLab() {
             cDevice.isWindowOpen().markInterested();
 
             var userBanks = 9;
-
             var uControls = host.createUserControls(100);
             for (var h = 0; h < userBanks; h++)
                 for (var j = 0; j < 10; j++)
@@ -322,15 +437,11 @@ function KeyLab() {
             var userControlPageIndex = 0;
             var getUserControl = function (index) { return uControls.getControl(index + (10 * userControlPageIndex)); }
 
-            this.onParamClick = function () {
-                browser.startBrowsing();
-            };
-
+            this.onParamClick = function () { browser.startBrowsing(); };
             this.onValueClick = function () {
                 if (cDevice.isPlugin().get())
                     cDevice.isWindowOpen().toggle();
             };
-
             this.onEncoder = function (ctrl, inc) {
                 var index = ctrl.index;
                 if (this.bank == 1) {
@@ -349,15 +460,14 @@ function KeyLab() {
                     if (userControlPageIndex < userBanks)
                         getUserControl(index).inc(inc, 128);
                     else {
-                        var x = inc > 0 ? 1 : 0;
-                        var cc = 0x40 + (2 * index) + x;
+                        var cc = 0x40 + (2 * index) + (inc > 0 ? 1 : 0);
                         midiInKeys.sendRawMidiEvent(0xB0, cc, 0x7f);
-                        //midiInKeys.sendRawMidiEvent(0xB0, cc, 0x00);
                     }
                 }
             };
 
             this.setIndication = function () {
+                Object.getPrototypeOf(this).setIndication.call(this);
                 controls.sound.isLit = this.active;
                 for (var i = 0; i < 8; i++)
                     cRemote.getParameter(i).setIndication(this.active && (this.bank == 1));
@@ -368,8 +478,8 @@ function KeyLab() {
 
                 if (this.active) {
                     controls.multi.isLit = false;
-                    controls.bank1.isLit = (this.bank & 1 == 1);
-                    controls.bank2.isLit = (this.bank & 2 == 2);
+                    controls.bank1.isLit = (this.bank & 1) == 1;
+                    controls.bank2.isLit = (this.bank & 2) == 2;
 
                     switch (this.bank) {
                         case 1:
@@ -398,46 +508,37 @@ function KeyLab() {
                 }
             };
 
-            cRemote.selectedPageIndex().addValueObserver((function (value) {
+            cRemote.selectedPageIndex().addValueObserver(function (value) {
                 remotePageIndex = value;
-                if (this.active)
-                    this.setIndication();
-            }).bind(this));
+                if (_this.active)
+                    _this.setIndication();
+            });
         });
 
     var BROWSE_MODE = createMode(
         function () {
             this.name = "Browse Mode";
+            var _this = this;
             var tabNames = ["Devices", "Presets", "Multi-Samples", "Samples", "Music"];
             var tabIndex = -1;
-
             var cResult = cBrowser.getCursorResult();
-            var sDevice = browser.getDeviceSession();
-            var sPreset = browser.getPresetSession();
-            var sMultiSample = browser.getMultiSampleSession();
-            var sSample = browser.getSampleSession();
-            var sMusic = browser.getMusicSession();
+
             var cursorMap = {
                 "Devices": [
-                    sDevice.getDeviceTypeFilter().createCursorItem(),
-                    sDevice.getFileTypeFilter().createCursorItem(),
-                    sDevice.getCategoryFilter().createCursorItem(),
-                    sDevice.getTagsFilter().createCursorItem(),
-                    sDevice.getCreatorFilter().createCursorItem()],
+                    browser.getDeviceSession().getDeviceTypeFilter().createCursorItem(),
+                    browser.getDeviceSession().getFileTypeFilter().createCursorItem(),
+                    browser.getDeviceSession().getCategoryFilter().createCursorItem(),
+                    browser.getDeviceSession().getTagsFilter().createCursorItem(),
+                    browser.getDeviceSession().getCreatorFilter().createCursorItem()],
                 "Presets": [
-                    sPreset.getPresetTypeFilter().createCursorItem(),
-                    sPreset.getFileTypeFilter().createCursorItem(),
-                    sPreset.getCategoryFilter().createCursorItem(),
-                    sPreset.getTagsFilter().createCursorItem(),
-                    sPreset.getCreatorFilter().createCursorItem()],
-                "Multi-Samples": [
-                    sMultiSample.getFileTypeFilter().createCursorItem()],
-                "Samples": [
-                    sSample.getFileTypeFilter().createCursorItem()
-                ],
-                "Music": [
-                    sMusic.getFileTypeFilter().createCursorItem()
-                ]
+                    browser.getPresetSession().getPresetTypeFilter().createCursorItem(),
+                    browser.getPresetSession().getFileTypeFilter().createCursorItem(),
+                    browser.getPresetSession().getCategoryFilter().createCursorItem(),
+                    browser.getPresetSession().getTagsFilter().createCursorItem(),
+                    browser.getPresetSession().getCreatorFilter().createCursorItem()],
+                "Multi-Samples": [browser.getMultiSampleSession().getFileTypeFilter().createCursorItem()],
+                "Samples": [browser.getSampleSession().getFileTypeFilter().createCursorItem()],
+                "Music": [browser.getMusicSession().getFileTypeFilter().createCursorItem()]
             };
 
             this.onEncoder = function (ctrl, inc) {
@@ -445,188 +546,76 @@ function KeyLab() {
                 if (browserTab in cursorMap)
                     moveCursor(cursorMap[browserTab][ctrl.index], inc);
             };
-            this.onButton = function (ctrl) {
-                switch (ctrl.index) {
-                    case 0: browser.getDeviceSession().activate(); break;
-                    case 1: browser.getPresetSession().activate(); break;
-                    case 2: browser.getMultiSampleSession().activate(); break;
-                    case 3: browser.getSampleSession().activate(); break;
-                    case 4: browser.getMusicSession().activate(); break;
-                }
-            };
+
+            this.buttonActions = [
+                clickable(function () { browser.getDeviceSession().activate(); }, function () { return tabIndex == 0; }),
+                clickable(function () { browser.getPresetSession().activate(); }, function () { return tabIndex == 1; }),
+                clickable(function () { browser.getMultiSampleSession().activate(); }, function () { return tabIndex == 2; }),
+                clickable(function () { browser.getSampleSession().activate(); }, function () { return tabIndex == 3; }),
+                clickable(function () { browser.getMusicSession().activate(); }, function () { return tabIndex == 4; })
+            ];
+
             this.onParamClick = function () { browser.cancelBrowsing(); };
             this.onValueClick = function () { browser.commitSelectedResult(); };
             this.onParam = function (inc) { moveCursor(cBrowser, inc); };
             this.onValue = function (inc) { moveCursor(cResult, inc); };
             this.onMode = function (isMulti) {
                 browser.cancelBrowsing();
-                this.prototype.onMode(isMulti);
+                Object.getPrototypeOf(this).onMode.call(this, isMulti);
             };
+            this.bank = 0;
 
-            this.setIndication = function () {
-                if (this.active) {
-                    sendTextToKeyLab(this.name, "");
-                    setButtonLight(tabIndex);
-                }
-            };
-
-            cBrowser.name().addValueObserver((function (name) {
+            cBrowser.name().addValueObserver(function (name) {
                 if (name.length == 0) return;
                 tabIndex = tabNames.indexOf(name);
-                this.name = "Browse " + name;
-                this.setIndication();
-            }).bind(this));
+                _this.name = "Browse " + name;
+                _this.setIndication();
+            });
 
-            cBrowser.exists().addValueObserver((function (browsing) { setMode(browsing ? this : SOUND_MODE); }).bind(this));
+            cBrowser.exists().addValueObserver(function (browsing) { setMode(browsing ? _this : SOUND_MODE); });
         });
-
-    // notes:
-    // in Mix mode, there is no loop start/end/cyrrent time.
-    // in arrange more, sends and pan arent visible.
-    // Are there better uses for the knobs in these modes?
 
     var MULTI_MODE = createMode(
         function () {
-            var padOffset = 0;
-            var shiftPads = function (inc) {
-                if (inc > 0 && padOffset >= 4) return;
-                if (inc < 0 && padOffset <= -3) return;
-
-                var value = padOffset * 16;
-                var padTranslation = new Array(128);
-                for (var i = 0; i < 128; i++) {
-                    padTranslation[i] = (value < 0 || value > 127) ? -1 : value;
-                    value++;
-                }
-                midiInPads.setKeyTranslationTable(padTranslation);
-                var prefix = (padOffset >= 0) ? " +" : " ";
-                host.showPopupNotification("Drum Pad Bank:" + prefix + padOffset);
-                sendTextToKeyLab("Drum Pad Bank:", prefix + padOffset)
-            };
-
-            var arePadsAssignedToSlots = false;
-            var togglePadsAssignedToSlots = function () {
-                arePadsAssignedToSlots = !arePadsAssignedToSlots;
-                for (var i = 0; i < 16; i++) {
-                    var ctrl = controls.pads[i];
-                    if (arePadsAssignedToSlots)
-                        ctrl.config.splice(2, 6, 8, 10, 0x24 + i, 0, 0x7F, 1);
-                    else
-                        ctrl.config.splice(2, 6, 9, 9, 0x24 + i, 0x20, 0x7F, 1);        // Midi note mode
-                    ctrl.configure();
-                    if (!arePadsAssignedToSlots)
-                        ctrl.isLit = false;
-                    else
-                        setPadLights();
-                }
-            };
-
-            var padTrackBank = host.createTrackBank(4, 0, 4);       // Create a trackbank that follows the select track
-            padTrackBank.followCursorTrack(cTrack);
-            //	scrollTracksUp ()           -- could be assigned to P5 if padTrackBank wasn't linked to main track cursor
-            //  setTrackScrollStepSize(4)   -- if not linked to cTrack
-            var slotPlaybackStates = [];
-
-            for (var i = 0; i < 4; i++) {
-                var track = padTrackBank.getTrack(i);
-                var launcherBank = track.clipLauncherSlotBank();
-                launcherBank.addPlaybackStateObserver((function (slotIndex, playbackState, isQueued) {
-                    var padIndex = (slotIndex * 4) + i;
-                    slotPlaybackStates[padIndex] = { playbackState: playbackState, isQueued: isQueued };
-                    if (arePadsAssignedToSlots)
-                        controls.pads[padIndex].isLit = playbackState == "playing";
-                }).bind(this));
-            }
-
-            var padLightsFlipFlop = 0;
-            var setPadLights = function () {
-                if (!arePadsAssignedToSlots) return;
-                padLightsFlipFlop++;
-
-                for (var i = 0; i < 16; i++) {
-                    var isLit = false;
-                    var state = slotPlaybackStates[i];
-                    switch (state.playbackState) {
-                        case "playing": isLit = state.isQueued ? (padLightsFlipFlop & 1) == 1 : true; break;
-                        case "stopping": isLit = state.isQueued ? (padLightsFlipFlop & 3) != 3 : false; break;
-                    }
-                    controls.pads[padIndex].isLit = isLit;
-                }
-                host.scheduleTask(setPadLights, [], 250);
-            }
-
-            this.onPad = function (ctrl, isDown) {
-                if (!isDown) return;
-                var track = padTrackBank.getTrack(Math.abs(ctrl.index / 4));
-                var launcherBank = track.clipLauncherSlotBank();
-                launcherBank.select(ctrl.index % 4);
-                var slot = launcherBank.getItemAt(ctrl.index % 4);
-
-                if (slot.isPlaybackQueued().get()) {
-                    launcherBank.returnToArrangement();
-                } else if (slot.isPlaying().get()) {
-                    //launcherBank.stop();
-                    launcherBank.returnToArrangement();
-                } else {
-                    launcherBank.launch(ctrl.index % 4);
-                }
-            }
-
             this.name = "Mix Mode";
-            var MULTI_MODE = this;
+            var _this = this;
+
+            var clickObservable = function (observable) {
+                var value = false;
+                observable.addValueObserver(function (_) {
+                    value = _;
+                    _this.setIndication();
+                });
+                return clickable(function () { observable.toggle(); }, function () { return value; });
+            };
+
+            var arrangerActions = [
+            /*0 */ clickable(function () { application.setPanelLayout(panelLayouts[0]); }, function () { return panelLayoutIndex == 0; }),
+            /*1 */ clickable(function () { application.setPanelLayout(panelLayouts[1]); }, function () { return panelLayoutIndex == 1; }),
+            /*2 */ clickable(function () { application.setPanelLayout(panelLayouts[2]); }, function () { return panelLayoutIndex == 2; }),
+            /*3 */ clickable(function () { application.toggleInspector(); }),
+            /*4 */ clickObservable(arranger.areEffectTracksVisible()),
+            /*5 */ clickObservable(arranger.isIoSectionVisible()),
+            /*6 */ clickObservable(arranger.isTimelineVisible()),
+            /*7 */ clickObservable(arranger.isClipLauncherVisible()),
+            /*8 */ DRUMPADS ? clickable(function () { padOps.padsLaunchSlots ? padTrackBank.scrollScenesUp() : padOps.padOffset -= 16; }) : undefined,
+            /*9 */ DRUMPADS ? clickable(function () { padOps.padsLaunchSlots ? padTrackBank.scrollScenesDown() : padOps.padOffset += 16; }) : undefined];
+
+            var mixerActions = arrangerActions.slice();
+            mixerActions[3] = clickObservable(mixer.isMeterSectionVisible());
+            mixerActions[4] = clickObservable(mixer.isSendSectionVisible());
+            mixerActions[5] = clickObservable(mixer.isIoSectionVisible());
+            mixerActions[6] = clickObservable(mixer.isDeviceSectionVisible());
+            mixerActions[7] = clickObservable(mixer.isClipLauncherSectionVisible());
 
             var panelLayouts = ["ARRANGE", "MIX", "EDIT"];
+            var panelBehaviors = [arrangerActions, mixerActions, mixerActions];
             var panelLayoutName = "";
-            var panelLayoutsIndex = 0;
-            application.panelLayout().addValueObserver((function (value) {
-                panelLayoutName = value;
-                panelLayoutsIndex = panelLayouts.indexOf(value);
-                if (this.active)
-                    this.setIndication();
-            }).bind(this));
+            var panelLayoutIndex = 0;
 
-            //arranger.isPlaybackFollowEnabled ()
-            arranger.areCueMarkersVisible().markInterested();
-            arranger.isIoSectionVisible().markInterested();
-            arranger.areEffectTracksVisible().markInterested();
-            arranger.hasDoubleRowTrackHeight().markInterested();
-            arranger.isTimelineVisible().markInterested();
-            arranger.isClipLauncherVisible().markInterested();
-
-            var observable = function (fnClick, fngetIsOn) { return { onClick: fnClick, getIsOn: fngetIsOn }; };
-
-            var action = function (fnClick, fnAddObserver) {
-                var value = false;
-                if (typeof fnAddObserver !== 'undefined')
-                    fnAddObserver(function (_) {
-                        value = _;
-                        this.setIndication();
-                    });
-                return observable(fnClick, function () { return value; });
-            };
-
-            var adapt = function (observable) {
-                var value = false;
-                observable.addValueObserver(function (_) { value = _; this.setIndication(); });
-                return observable(function () { return value; }, function () { observable.toggle(); });
-            };
-
-            var buttonActions = [
-                /*0*/ observable(function () { application.setPanelLayout(panelLayouts[0]); }, function () { return panelLayoutIndex == 0; }),
-                /*1*/ observable(function () { application.setPanelLayout(panelLayouts[1]); }, function () { return panelLayoutIndex == 1; }),
-                /*2*/ observable(function () { application.setPanelLayout(panelLayouts[2]); }, function () { return panelLayoutIndex == 2; }),
-                /*3*/ observable(function () { }), //!!
-                /*4*/ observable(function () { }), //!!
-                /*5*/ observable(function () { }), //!!
-                /*6*/ adapt(arranger.isClipLauncherVisible()),
-                /*7*/ adapt(arranger.isTimelineVisible()),
-                /*8*/ DRUMPADS ? action(function () { arePadsAssignedToSlots ? padTrackBank.scrollScenesUp() : shiftPads(-1); }) : observable(function () { }),
-                /*9*/ DRUMPADS ? action(function () { arePadsAssignedToSlots ? padTrackBank.scrollScenesDown() : shiftPads(+1); }) : observable(function () { })
-            ];
 
             this.onLongButton = function (ctrl) {
                 switch (ctrl.index) {
-                    //case 0: application.toggleInspector(); return;
                     case 0: application.toggleDevices(); return;
                     case 1: application.toggleMixer(); return;
                     case 2: application.toggleNoteEditor(); return;
@@ -635,33 +624,19 @@ function KeyLab() {
                     case 5: break;
                     case 6: break;
                     case 7: arranger.hasDoubleRowTrackHeight().toggle(); return;
-                    case 8: break;      // Pads to drum-pad mode
-                    case 9: break;      // Pads to clip-launcher mode
+                    case 8: padOps.padsLaunchSlots = false; return;
+                    case 9: padOps.padsLaunchSlots = true; return;
                 }
             };
 
-            this.onButton = function (ctrl) { buttonActions[ctrl.index].onClick(); };
-
             this.setIndication = function () {
-                if (!this.active && arePadsAssignedToSlots)
-                    togglePadsAssignedToSlots();
-
+                Object.getPrototypeOf(this).setIndication.call(this);
                 cTrack.getPan().setIndication(this.active);
                 cTrack.getSend(0).setIndication(this.active);
                 cTrack.getSend(1).setIndication(this.active);
                 cTrack.getSend(2).setIndication(this.active);
-                controls.multi.isLit = this.active;
-
-                for (var i = 0; i < 4; i++) {
-                    var track = padTrackBank.getTrack(i);
-                    var launcherBank = track.clipLauncherSlotBank();
-                    launcherBank.setIndication(arePadsAssignedToSlots);
-                }
-
-                setPadLights();
-
-                for (var i = 0; i < 10; i++)
-                    controls.buttons[i].isLit = buttonActions[i].getIsOn();
+                if (this.active)
+                    controls.multi.isLit = this.active;
             };
 
             this.onEncoder = function (ctrl, inc) {
@@ -680,8 +655,16 @@ function KeyLab() {
                         inc > 0 ? padTrackBank.scrollScenesDown() : padTrackBank.scrollScenesUp();
                         return;
                 }
-                //this.prototype.onEncoder(ctrl, inc);
             };
+
+            application.panelLayout().addValueObserver(function (value) {
+                panelLayoutName = value;
+                panelLayoutIndex = panelLayouts.indexOf(value);
+                _this.buttonActions = panelBehaviors[panelLayoutIndex];
+                if (_this.active) _this.setIndication();
+            });
+
+            this.buttonActions = mixerActions;
         });
 
     host.getMidiInPort(0).setMidiCallback(
@@ -698,18 +681,18 @@ function KeyLab() {
 
                     switch (ctrl.type) {
                         case "Mode": if (data2 == 0) mode.onMode(ctrl.name == "Multi"); return;
-                        case "Bank": if (data2 == 0) mode.onBank(this.bank); return;
+                        case "Bank": if (data2 == 0) mode.onBank(ctrl.bank); return;
                         case "Volume": mode.onVolume(data2 - 64); return;
                         case "Fader": mode.onFader(ctrl, data2); return;
                         case "Knob": mode.onEncoder(ctrl, data2 - 64); return;
                         case "Pad": mode.onPad(ctrl, data2 > 0); return;
                         case "Button":
-                            if (data2 == 0) {
-                                if (data1 == ctrl.config[3])
+                            if (data1 == ctrl.config[3]) {
+                                if (data2 == 0)
                                     mode.onButton(ctrl);
-                                else
-                                    mode.onLongButton(ctrl);
                             }
+                            else if (data2 > 0)
+                                mode.onLongButton(ctrl);
                             return;
                         case "Other":
                             switch (ctrl.name) {
@@ -760,7 +743,8 @@ function KeyLab() {
     for (var i = 0; i < allControls.length; i++)
         host.scheduleTask(allControls[i].configure, [], 100 * i);
 
-    setMode(SOUND_MODE);
+    //setMode(SOUND_MODE);
+    setMode(MULTI_MODE);
 
     sendTextToKeyLab("Connected to", "Bitwig");
 
