@@ -421,7 +421,8 @@ function KeyLab() {
         function () {
             var _this = this;
             var cRemote = cDevice.createCursorRemoteControlsPage(8);
-            cRemote.pageNames().markInterested();
+            var remotePageNames = [];
+            cRemote.pageNames().addValueObserver(function (_) { remotePageNames = _; });
             //cDevice.isRemoteControlsSectionVisible
             cDevice.isPlugin().markInterested();
             cDevice.isWindowOpen().markInterested();
@@ -484,6 +485,8 @@ function KeyLab() {
                     switch (this.bank) {
                         case 1:
                             setButtonLight(remotePageIndex);
+                            if (remotePageIndex >= 0 && remotePageIndex < remotePageNames.length)
+                                sendTextToKeyLab("Remote Control", remotePageNames[remotePageIndex]);
                             break;
                         case 2:
                             setButtonLight(userControlPageIndex);
@@ -613,13 +616,12 @@ function KeyLab() {
             var panelLayoutName = "";
             var panelLayoutIndex = 0;
 
-
             this.onLongButton = function (ctrl) {
                 switch (ctrl.index) {
-                    case 0: application.toggleDevices(); return;
-                    case 1: application.toggleMixer(); return;
-                    case 2: application.toggleNoteEditor(); return;
-                    case 3: application.toggleInspector(); return;
+                    case 0: panelLayoutIndex == 2 ? application.toggleDevices() : application.toggleNoteEditor(); return;
+                    case 1: panelLayoutIndex == 2 ? application.toggleMixer() : application.toggleAutomationEditor(); return;
+                    case 2: if (panelLayoutIndex < 2) application.toggleDevices(); return;
+                    case 3: if (panelLayoutIndex == 0) application.toggleMixer(); return;
                     case 4: break;
                     case 5: break;
                     case 6: break;
@@ -627,6 +629,7 @@ function KeyLab() {
                     case 8: padOps.padsLaunchSlots = false; return;
                     case 9: padOps.padsLaunchSlots = true; return;
                 }
+                this.setIndication();
             };
 
             this.setIndication = function () {
