@@ -26,7 +26,7 @@ function KeyLab() {
 
     controls = this.controls = (function () {
         var configMap = [1, 2, 3, 4, 5, 6, 0x40, 0x41];
-        var defineControl = function (id, type, name, bank, index, hasLED, config) {
+        var defineControl = function (id, type, name, bank, index, hasLED, _config) {
             var idHex = uint7ToHex(id);
             var config = [].slice.call(arguments, 6);
             var setValue = function (cmd, val) {
@@ -44,7 +44,7 @@ function KeyLab() {
                 "configure": {
                     value: function () {
                         if (arguments.length > 0)
-                            this.config = [].slice.call(arguments);
+                            config = [].slice.call(arguments);
 
                         for (var i = 0; i < config.length; i++)
                             setValue(configMap[i], config[i]);
@@ -82,9 +82,7 @@ function KeyLab() {
                 };
                 props["activateLED"] = {
                     value: function () {
-                        // println("Setting light for " + name + " to " + this._isLit);
                         var data = "F0 00 20 6B 7F 42 02 00 10 " + idHex + (this._isLit ? "01" : "00") + " F7";
-                        //host.scheduleTask(sendSysex, [data], 200);
                         sendSysex(data);
                     }
                 }
@@ -251,11 +249,10 @@ function KeyLab() {
     var cDevice = host.createEditorCursorDevice(0);
     var browser = cDevice.createDeviceBrowser(1, 1);
     var cBrowser = browser.createCursorSession();
-    var padTrackBank = host.createTrackBank(4, 0, 4);       // Create a trackbank that follows the select track
     var arranger = host.createArranger();
     var mixer = host.createMixer();
+    var padTrackBank = host.createTrackBank(4, 0, 4);       // Create a trackbank that follows the select track
     padTrackBank.followCursorTrack(cTrack);
-
     var isPlaying = false;
     var mode = null;
     var setMode = function (value) {
@@ -264,8 +261,6 @@ function KeyLab() {
                 mode.active = false;
                 mode.setIndication();
             }
-            controls.sound.isLit = false;
-            controls.multi.isLit = false;
             mode = value;
             mode.active = true;
             mode.setIndication();
@@ -284,7 +279,7 @@ function KeyLab() {
             if (!padsLaunchSlots) return;
             padLightsFlipFlop = (padLightsFlipFlop + 1) % 4;
             for (var i = 0; i < 16; i++)
-                controls.pads[padIndex].isLit = (padLightsFlipFlop & slotPlaybackStates[i]) > 0;
+                controls.pads[i].isLit = (padLightsFlipFlop & slotPlaybackStates[i]) > 0;
 
             host.scheduleTask(setPadLights, [], 150);
         }
@@ -344,6 +339,7 @@ function KeyLab() {
     var clickable = function (fnClick, fngetIsOn) { return { onClick: fnClick, getIsOn: fngetIsOn }; };
 
     var createMode = (function () {
+
         var mode_prototype = {
             name: "Global Mode",
             onParamClick: function () { },
@@ -355,6 +351,9 @@ function KeyLab() {
                 if (this.active) {
                     controls.bank1.isLit = (this.bank & 1) == 1;
                     controls.bank2.isLit = (this.bank & 2) == 2;
+                    controls.sound.isLit = (this.soundMulti & 1) == 1;
+                    controls.multi.isLit = (this.soundMulti & 2) == 2;
+
                     var actions = this.buttonActions;
                     if (actions !== undefined && actions.length > 0)
                         for (var i = 0; i < actions.length; i++)
@@ -370,20 +369,20 @@ function KeyLab() {
             onFader: function (ctrl, data) { tracks.getTrack(ctrl.index).getVolume().set(data, 128); },
             onEncoder: function (ctrl, inc) { },
             onPad: function (ctrl, isDown) {
-                if (!isDown) return;
-                var track = padTrackBank.getTrack(Math.abs(ctrl.index / 4));
-                var launcherBank = track.clipLauncherSlotBank();
-                launcherBank.select(ctrl.index % 4);
-                var slot = launcherBank.getItemAt(ctrl.index % 4);
+                //if (!isDown) return;
+                //var track = padTrackBank.getTrack(Math.abs(ctrl.index / 4));
+                //var launcherBank = track.clipLauncherSlotBank();
+                //launcherBank.select(ctrl.index % 4);
+                //var slot = launcherBank.getItemAt(ctrl.index % 4);
 
-                if (slot.isPlaybackQueued().get()) {
-                    launcherBank.returnToArrangement();
-                } else if (slot.isPlaying().get()) {
-                    //launcherBank.stop();
-                    launcherBank.returnToArrangement();
-                } else {
-                    launcherBank.launch(ctrl.index % 4);
-                }
+                //if (slot.isPlaybackQueued().get()) {
+                //    launcherBank.returnToArrangement();
+                //} else if (slot.isPlaying().get()) {
+                //    //launcherBank.stop();
+                //    launcherBank.returnToArrangement();
+                //} else {
+                //    launcherBank.launch(ctrl.index % 4);
+                //}
             },
             onBank: function (bank) {
                 this.bank = bank;
@@ -396,6 +395,7 @@ function KeyLab() {
                 }
             },
             bank: 1,
+            soundMulti: 0,
             active: false,
             _buttonActions: []
         };
@@ -420,6 +420,7 @@ function KeyLab() {
     var SOUND_MODE = createMode(
         function () {
             var _this = this;
+            this.soundMulti = 1;
             var cRemote = cDevice.createCursorRemoteControlsPage(8);
             var remotePageNames = [];
             cRemote.pageNames().addValueObserver(function (_) { remotePageNames = _; });
@@ -437,8 +438,15 @@ function KeyLab() {
             var remotePageIndex = 0;
             var userControlPageIndex = 0;
             var getUserControl = function (index) { return uControls.getControl(index + (10 * userControlPageIndex)); }
+            cDevice.name().markInterested();
 
             this.onParamClick = function () { browser.startBrowsing(); };
+            this.onValue = function (inc) {
+                if (this.bank == 1) {
+                    moveCursor(cDevice, inc);
+                    sendTextToKeyLab("Device:", cDevice.name().get());
+                }
+            };
             this.onValueClick = function () {
                 if (cDevice.isPlugin().get())
                     cDevice.isWindowOpen().toggle();
@@ -469,7 +477,6 @@ function KeyLab() {
 
             this.setIndication = function () {
                 Object.getPrototypeOf(this).setIndication.call(this);
-                controls.sound.isLit = this.active;
                 for (var i = 0; i < 8; i++)
                     cRemote.getParameter(i).setIndication(this.active && (this.bank == 1));
 
@@ -477,6 +484,7 @@ function KeyLab() {
                     for (var j = 0; j < 10; j++)
                         uControls.getControl((h * 10) + j).setIndication(this.active && (this.bank == 2) && h == userControlPageIndex);
 
+                controls.sound.isLit = this.active;
                 if (this.active) {
                     controls.multi.isLit = false;
                     controls.bank1.isLit = (this.bank & 1) == 1;
@@ -509,6 +517,20 @@ function KeyLab() {
                     if (this.active)
                         this.setIndication();
                 }
+            };
+
+            cDevice.isRemoteControlsSectionVisible().markInterested();
+            cDevice.isEnabled().markInterested();
+            cDevice.isExpanded().markInterested();
+
+            this.onLongButton = function (ctrl) {
+                switch (ctrl.index) {
+                    case 0: cDevice.isEnabled().toggle(); return;
+                    case 1: cDevice.isRemoteControlsSectionVisible().toggle(); return;
+                    case 2: cDevice.isExpanded().toggle(); return;
+                    case 3: cDevice.browseToInsertAfterDevice(); return;
+                }
+                this.setIndication();
             };
 
             cRemote.selectedPageIndex().addValueObserver(function (value) {
@@ -581,6 +603,7 @@ function KeyLab() {
     var MULTI_MODE = createMode(
         function () {
             this.name = "Mix Mode";
+            this.soundMulti = 2;
             var _this = this;
 
             var clickObservable = function (observable) {
@@ -593,23 +616,24 @@ function KeyLab() {
             };
 
             var arrangerActions = [
-            /*0 */ clickable(function () { application.setPanelLayout(panelLayouts[0]); }, function () { return panelLayoutIndex == 0; }),
-            /*1 */ clickable(function () { application.setPanelLayout(panelLayouts[1]); }, function () { return panelLayoutIndex == 1; }),
-            /*2 */ clickable(function () { application.setPanelLayout(panelLayouts[2]); }, function () { return panelLayoutIndex == 2; }),
-            /*3 */ clickable(function () { application.toggleInspector(); }),
+            /*0 */ clickable(function () { application.toggleInspector(); }),
+            /*1 */ clickable(function () { application.setPanelLayout(panelLayouts[0]); }, function () { return panelLayoutIndex == 0; }),
+            /*2 */ clickable(function () { application.setPanelLayout(panelLayouts[1]); }, function () { return panelLayoutIndex == 1; }),
+            /*3 */ clickable(function () { application.setPanelLayout(panelLayouts[2]); }, function () { return panelLayoutIndex == 2; }),
             /*4 */ clickObservable(arranger.areEffectTracksVisible()),
-            /*5 */ clickObservable(arranger.isIoSectionVisible()),
+            /*5 */ clickObservable(arranger.isClipLauncherVisible()),
             /*6 */ clickObservable(arranger.isTimelineVisible()),
-            /*7 */ clickObservable(arranger.isClipLauncherVisible()),
+            /*7 */ clickObservable(arranger.hasDoubleRowTrackHeight()),
+           // /*7 */ clickable(function () { padOps.padsLaunchSlots = !padOps.padsLaunchSlots; }, function () { return padOps.padsLaunchSlots == true; }),
             /*8 */ DRUMPADS ? clickable(function () { padOps.padsLaunchSlots ? padTrackBank.scrollScenesUp() : padOps.padOffset -= 16; }) : undefined,
             /*9 */ DRUMPADS ? clickable(function () { padOps.padsLaunchSlots ? padTrackBank.scrollScenesDown() : padOps.padOffset += 16; }) : undefined];
 
             var mixerActions = arrangerActions.slice();
-            mixerActions[3] = clickObservable(mixer.isMeterSectionVisible());
+            //mixerActions[3] = clickObservable(mixer.isMeterSectionVisible());
             mixerActions[4] = clickObservable(mixer.isSendSectionVisible());
             mixerActions[5] = clickObservable(mixer.isIoSectionVisible());
-            mixerActions[6] = clickObservable(mixer.isDeviceSectionVisible());
-            mixerActions[7] = clickObservable(mixer.isClipLauncherSectionVisible());
+            mixerActions[6] = clickObservable(mixer.isClipLauncherSectionVisible());
+            mixerActions[7] = clickObservable(mixer.isDeviceSectionVisible());
 
             var panelLayouts = ["ARRANGE", "MIX", "EDIT"];
             var panelBehaviors = [arrangerActions, mixerActions, mixerActions];
@@ -623,9 +647,9 @@ function KeyLab() {
                     case 2: if (panelLayoutIndex < 2) application.toggleDevices(); return;
                     case 3: if (panelLayoutIndex == 0) application.toggleMixer(); return;
                     case 4: break;
-                    case 5: break;
-                    case 6: break;
-                    case 7: arranger.hasDoubleRowTrackHeight().toggle(); return;
+                    case 5: arranger.hasDoubleRowTrackHeight().toggle(); return;
+                    case 6: padOps.padsLaunchSlots = false; return;
+                    case 7: padOps.padsLaunchSlots = true; return;
                     case 8: padOps.padsLaunchSlots = false; return;
                     case 9: padOps.padsLaunchSlots = true; return;
                 }
@@ -638,8 +662,9 @@ function KeyLab() {
                 cTrack.getSend(0).setIndication(this.active);
                 cTrack.getSend(1).setIndication(this.active);
                 cTrack.getSend(2).setIndication(this.active);
+                controls.multi.isLit = this.active;
                 if (this.active)
-                    controls.multi.isLit = this.active;
+                    controls.sound.isLit = false;
             };
 
             this.onEncoder = function (ctrl, inc) {
@@ -740,16 +765,15 @@ function KeyLab() {
 
     sendSysex("F0 00 20 6B 7F 42 02 00 40 02 7F F7");
 
-    for (var i = 0; i < allControls.length; i++)
-        allControls[i].configure();
-
-    for (var i = 0; i < allControls.length; i++)
-        host.scheduleTask(allControls[i].configure, [], 100 * i);
-
+    //setMode(MULTI_MODE);
     //setMode(SOUND_MODE);
-    setMode(MULTI_MODE);
 
     sendTextToKeyLab("Connected to", "Bitwig");
+
+    for (var i = 0; i < allControls.length; i++)
+        host.scheduleTask(allControls[i].configure, [], 50 * i);
+
+    host.scheduleTask(setMode, [MULTI_MODE], 51 * allControls.length);
 
     return this;
 }
