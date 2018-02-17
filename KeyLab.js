@@ -4,6 +4,13 @@ var kL = null;
 //  2. Use transpose buttons for Pad transpose. Will require resetting the transpose value via sysex.
 //  3. Reconfigure Multi-Mode long-press buttons to follow icons at bottom of screen.
 
+function sleep(millis) {
+    var date = new Date();
+    var curDate = null;
+    do { curDate = new Date(); }
+    while (curDate - date < millis);
+}
+
 function KeyLab() {
     var kL = this;
 
@@ -19,6 +26,28 @@ function KeyLab() {
 
     var midiOut = host.getMidiOutPort(0);
     var sendSysex = function (data) { midiOut.sendSysex(data); };
+    var setValue = function (id, cmd, val) {
+        sleep(8);
+        sendSysex("F0 00 20 6B 7F 42 02 00 " + uint7ToHex(cmd) + uint7ToHex(id) + uint7ToHex(val) + "F7");
+    };
+    var loadMemory = function (preset) {
+        sendSysex("F0 00 20 6B 7F 42 05 " + uint7ToHex(preset) + "F7");
+    };
+    var saveMemory = function (preset) {
+        sendSysex("F0 00 20 6B 7F 42 06 " + uint7ToHex(preset) + "F7");
+    };
+    var getValue = function (id, cmd) {
+        this.sendSysex("F0 00 20 6B 7F 42 01 00 " + uint7ToHex(cmd) + uint7ToHex(id) + "F7");
+    };
+    var setButtonLight = function (index, from, to) {
+        from = from || 0;
+        to = to || 9;
+        for (var i = from; i <= to; i++)
+            controls.buttons[i].isLit = (index === i);
+    };
+    var sendTextToKeyLab = function (line1, line2) {
+        sendSysex("F0 00 20 6B 7F 42 04 00 60 01 " + line1.toHex(16) + " 00 02 " + line2.toHex(16) + " 00 F7");
+    };
 
     var ccMap = [[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], []];
     var mmcMap = {};
@@ -28,7 +57,7 @@ function KeyLab() {
         var configMap = [1, 2, 3, 4, 5, 6, 0x40, 0x41];
         var defineControl = function (id, type, name, bank, index, hasLED, _config) {
             var config = [].slice.call(arguments, 6);
-            
+
             var props = {
                 "id": { value: id },
                 "type": { value: type },
@@ -199,27 +228,11 @@ function KeyLab() {
         };
     })();
 
-    var setValue = function (id, cmd, val) {
-        sendSysex("F0 00 20 6B 7F 42 02 00 " + uint7ToHex(cmd) + uint7ToHex(id) + uint7ToHex(val) + "F7");
-    };
-    var loadMemory = function (preset) {
-        sendSysex("F0 00 20 6B 7F 42 05 " + uint7ToHex(preset) + "F7");
-    };
-    var saveMemory = function (preset) {
-        sendSysex("F0 00 20 6B 7F 42 06 " + uint7ToHex(preset) + "F7");
-    };
-    var getValue = function (id, cmd) {
-        this.sendSysex("F0 00 20 6B 7F 42 01 00 " + uint7ToHex(cmd) + uint7ToHex(id) + "F7");
-    };
-    var setButtonLight = function (index, from, to) {
-        from = from || 0;
-        to = to || 9;
-        for (var i = from; i <= to; i++)
-            controls.buttons[i].isLit = (index === i);
-    };
-    var sendTextToKeyLab = function (line1, line2) {
-        sendSysex("F0 00 20 6B 7F 42 04 00 60 01 " + line1.toHex(16) + " 00 02 " + line2.toHex(16) + " 00 F7");
-    }
+    sendTextToKeyLab("Initializing", "Controls");
+    sendSysex("F0 00 20 6B 7F 42 02 00 40 02 7F F7");
+    for (var i = 0; i < allControls.length; i++)
+        allControls[i].configure();
+
     var moveCursor = function (cursor, inc) {
         if (cursor !== undefined)
             (inc > 0) ? cursor.selectNext() : cursor.selectPrevious();
@@ -256,10 +269,12 @@ function KeyLab() {
                 mode.setIndication();
             }
             mode = value;
-            mode.active = true;
-            mode.setIndication();
-            sendTextToKeyLab(value.name, "");
-            //host.showPopupNotification(value.name);
+            if (mode !== null) {
+                mode.active = true;
+                mode.setIndication();
+                sendTextToKeyLab(value.name, "");
+                //host.showPopupNotification(value.name);
+            }
         }
     };
 
@@ -354,30 +369,15 @@ function KeyLab() {
                             controls.buttons[i].isLit = (actions[i] !== undefined && actions[i].getIsOn !== undefined) ? actions[i].getIsOn() : false;
                 }
             },
-            onButton: function (ctrl) {
+            onClick: function (ctrl) {
                 if (this.buttonActions === undefined || this.buttonActions.length == 0) return;
                 var action = this.buttonActions[ctrl.index];
                 if (action !== undefined) action.onClick();
             },
-            onLongButton: function (ctrl) { },
+            onHold: function (ctrl) { },
             onFader: function (ctrl, data) { tracks.getTrack(ctrl.index).getVolume().set(data, 128); },
             onEncoder: function (ctrl, inc) { },
-            onPad: function (ctrl, isDown) {
-                //if (!isDown) return;
-                //var track = padTrackBank.getTrack(Math.abs(ctrl.index / 4));
-                //var launcherBank = track.clipLauncherSlotBank();
-                //launcherBank.select(ctrl.index % 4);
-                //var slot = launcherBank.getItemAt(ctrl.index % 4);
-
-                //if (slot.isPlaybackQueued().get()) {
-                //    launcherBank.returnToArrangement();
-                //} else if (slot.isPlaying().get()) {
-                //    //launcherBank.stop();
-                //    launcherBank.returnToArrangement();
-                //} else {
-                //    launcherBank.launch(ctrl.index % 4);
-                //}
-            },
+            onPad: function (ctrl, isDown) { },
             onBank: function (bank) {
                 this.bank = bank;
                 this.setIndication();
@@ -501,7 +501,7 @@ function KeyLab() {
                 }
             };
 
-            this.onButton = function (ctrl) {
+            this.onClick = function (ctrl) {
                 var index = ctrl.index;
                 if (this.bank == 1) {
                     if (index < cRemote.pageNames().get().length)
@@ -517,12 +517,18 @@ function KeyLab() {
             cDevice.isEnabled().markInterested();
             cDevice.isExpanded().markInterested();
 
-            this.onLongButton = function (ctrl) {
+            this.onHold = function (ctrl) {
                 switch (ctrl.index) {
                     case 0: cDevice.isEnabled().toggle(); return;
                     case 1: cDevice.isRemoteControlsSectionVisible().toggle(); return;
                     case 2: cDevice.isExpanded().toggle(); return;
                     case 3: cDevice.browseToInsertAfterDevice(); return;
+                    case 4: arranger.hasDoubleRowTrackHeight().toggle(); return;
+                    case 5: cDevice.browseToInsertBeforeDevice(); return;
+                    case 6: cDevice.browseToReplaceDevice(); return;
+                    case 7: cDevice.browseToInsertAfterDevice(); return;
+                    case 8: padOps.padsLaunchSlots = false; return;
+                    case 9: padOps.padsLaunchSlots = true; return;
                 }
                 this.setIndication();
             };
@@ -532,66 +538,6 @@ function KeyLab() {
                 if (_this.active)
                     _this.setIndication();
             });
-        });
-
-    var BROWSE_MODE = createMode(
-        function () {
-            this.name = "Browse Mode";
-            var _this = this;
-            var tabNames = ["Devices", "Presets", "Multi-Samples", "Samples", "Music"];
-            var tabIndex = -1;
-            var cResult = cBrowser.getCursorResult();
-
-            var cursorMap = {
-                "Devices": [
-                    browser.getDeviceSession().getDeviceTypeFilter().createCursorItem(),
-                    browser.getDeviceSession().getFileTypeFilter().createCursorItem(),
-                    browser.getDeviceSession().getCategoryFilter().createCursorItem(),
-                    browser.getDeviceSession().getTagsFilter().createCursorItem(),
-                    browser.getDeviceSession().getCreatorFilter().createCursorItem()],
-                "Presets": [
-                    browser.getPresetSession().getPresetTypeFilter().createCursorItem(),
-                    browser.getPresetSession().getFileTypeFilter().createCursorItem(),
-                    browser.getPresetSession().getCategoryFilter().createCursorItem(),
-                    browser.getPresetSession().getTagsFilter().createCursorItem(),
-                    browser.getPresetSession().getCreatorFilter().createCursorItem()],
-                "Multi-Samples": [browser.getMultiSampleSession().getFileTypeFilter().createCursorItem()],
-                "Samples": [browser.getSampleSession().getFileTypeFilter().createCursorItem()],
-                "Music": [browser.getMusicSession().getFileTypeFilter().createCursorItem()]
-            };
-
-            this.onEncoder = function (ctrl, inc) {
-                var browserTab = cBrowser.name().get();
-                if (browserTab in cursorMap)
-                    moveCursor(cursorMap[browserTab][ctrl.index], inc);
-            };
-
-            this.buttonActions = [
-                clickable(function () { browser.getDeviceSession().activate(); }, function () { return tabIndex == 0; }),
-                clickable(function () { browser.getPresetSession().activate(); }, function () { return tabIndex == 1; }),
-                clickable(function () { browser.getMultiSampleSession().activate(); }, function () { return tabIndex == 2; }),
-                clickable(function () { browser.getSampleSession().activate(); }, function () { return tabIndex == 3; }),
-                clickable(function () { browser.getMusicSession().activate(); }, function () { return tabIndex == 4; })
-            ];
-
-            this.onParamClick = function () { browser.cancelBrowsing(); };
-            this.onValueClick = function () { browser.commitSelectedResult(); };
-            this.onParam = function (inc) { moveCursor(cBrowser, inc); };
-            this.onValue = function (inc) { moveCursor(cResult, inc); };
-            this.onMode = function (isMulti) {
-                browser.cancelBrowsing();
-                Object.getPrototypeOf(this).onMode.call(this, isMulti);
-            };
-            this.bank = 0;
-
-            cBrowser.name().addValueObserver(function (name) {
-                if (name.length == 0) return;
-                tabIndex = tabNames.indexOf(name);
-                _this.name = "Browse " + name;
-                _this.setIndication();
-            });
-
-            cBrowser.exists().addValueObserver(function (browsing) { setMode(browsing ? _this : SOUND_MODE); });
         });
 
     var MULTI_MODE = createMode(
@@ -634,16 +580,16 @@ function KeyLab() {
             var panelLayoutName = "";
             var panelLayoutIndex = 0;
 
-            this.onLongButton = function (ctrl) {
+            this.onHold = function (ctrl) {
                 switch (ctrl.index) {
                     case 0: panelLayoutIndex == 2 ? application.toggleDevices() : application.toggleNoteEditor(); return;
                     case 1: panelLayoutIndex == 2 ? application.toggleMixer() : application.toggleAutomationEditor(); return;
                     case 2: if (panelLayoutIndex < 2) application.toggleDevices(); return;
                     case 3: if (panelLayoutIndex == 0) application.toggleMixer(); return;
-                    case 4: break;
-                    case 5: arranger.hasDoubleRowTrackHeight().toggle(); return;
-                    case 6: padOps.padsLaunchSlots = false; return;
-                    case 7: padOps.padsLaunchSlots = true; return;
+                    case 4: arranger.hasDoubleRowTrackHeight().toggle(); return;
+                    case 5: cDevice.browseToInsertBeforeDevice(); return;
+                    case 6: cDevice.browseToReplaceDevice(); return;
+                    case 7: cDevice.browseToInsertAfterDevice(); return;
                     case 8: padOps.padsLaunchSlots = false; return;
                     case 9: padOps.padsLaunchSlots = true; return;
                 }
@@ -689,9 +635,88 @@ function KeyLab() {
             this.buttonActions = mixerActions;
         });
 
+    var POPUPBROWSE_MODE = createMode(
+        function () {
+            this.name = "Popup Mode";
+            var _this = this;
+            var popup = host.createPopupBrowser();
+            var tabIndex = -1;
+            var tabNames = [];
+            var shouldAudition = false;
+            popup.contentTypeNames().addValueObserver(function (_) { tabNames = _; });
+            popup.selectedContentTypeIndex().addValueObserver(function (_) { tabIndex = _; _this.setIndication(); });
+            popup.exists().addValueObserver(function (browsing) { setMode(browsing ? _this : SOUND_MODE); });
+            popup.title().addValueObserver(function (name) {
+                _this.name = name;
+                _this.setIndication();
+            });
+            popup.shouldAudition().addValueObserver(function (_) {
+                shouldAudition = _;
+                if (_this.active)
+                    controls.buttons[9].isLit = _;
+            });
+
+            var cResult = popup.resultsColumn().createCursorItem();
+
+            var cursorMap = [
+                popup.locationColumn().createCursorItem(),
+                popup.deviceColumn().createCursorItem(),
+                popup.categoryColumn().createCursorItem(),
+                popup.tagColumn().createCursorItem(),
+                popup.creatorColumn().createCursorItem(),
+
+                popup.smartCollectionColumn().createCursorItem(),
+                popup.deviceTypeColumn().createCursorItem(),
+                popup.fileTypeColumn().createCursorItem()
+            ];
+
+            this.onEncoder = function (ctrl, inc) {
+                switch (ctrl.index) {
+                    case 9:
+                        tabIndex = (tabIndex + inc) % tabNames.length;
+                        popup.selectedContentTypeIndex().set(tabIndex);
+                        break;
+                    default:
+                        moveCursor(cursorMap[ctrl.index], inc);
+                        break;
+                }
+            };
+
+            this.onClick = function (ctrl) {
+                switch (ctrl.index) {
+                    case 9:
+                        popup.shouldAudition().toggle(); return;
+                    default:
+                        if (ctrl.index < tabNames.length)
+                            popup.selectedContentTypeIndex().set(ctrl.index);
+                        return;
+                }
+            };
+
+            this.setIndication = function () {
+                if (this.active) {
+                    controls.bank1.isLit = false;
+                    controls.bank2.isLit = false;
+                    controls.sound.isLit = false;
+                    controls.multi.isLit = false;
+                    setButtonLight(tabIndex, 0, 5);
+                    controls.buttons[9].isLit = shouldAudition;
+                }
+            };
+
+            this.onParamClick = function () { popup.cancel(); };
+            this.onValueClick = function () { popup.commit(); };
+            this.onParam = function (inc) { };
+            this.onValue = function (inc) { moveCursor(cResult, inc); };
+            this.onMode = function (isMulti) {
+                popup.cancel();
+                Object.getPrototypeOf(this).onMode.call(this, isMulti);
+            };
+            this.bank = 0;
+        });
+
     host.getMidiInPort(0).setMidiCallback(
         function (status, data1, data2) {
-
             switch (status & 0xF0) {
                 case 0xB0:
                     var ctrl = ccMap[status & 0x0F][data1];
@@ -711,10 +736,10 @@ function KeyLab() {
                         case "Button":
                             if (data1 == ctrl.config[3]) {
                                 if (data2 == 0)
-                                    mode.onButton(ctrl);
+                                    mode.onClick(ctrl);
                             }
                             else if (data2 > 0)
-                                mode.onLongButton(ctrl);
+                                mode.onHold(ctrl);
                             return;
                         case "Other":
                             switch (ctrl.name) {
@@ -757,14 +782,9 @@ function KeyLab() {
         }
     );
 
-    sendSysex("F0 00 20 6B 7F 42 02 00 40 02 7F F7");
-
+    //host.scheduleTask(setMode, [MULTI_MODE], 51 * allControls.length);
+    setMode(MULTI_MODE);
     sendTextToKeyLab("Connected to", "Bitwig");
-
-    for (var i = 0; i < allControls.length; i++)
-        host.scheduleTask(allControls[i].configure, [], 50 * i);
-
-    host.scheduleTask(setMode, [MULTI_MODE], 51 * allControls.length);
 
     return this;
 }
