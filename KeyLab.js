@@ -27,14 +27,8 @@ function KeyLab() {
     controls = this.controls = (function () {
         var configMap = [1, 2, 3, 4, 5, 6, 0x40, 0x41];
         var defineControl = function (id, type, name, bank, index, hasLED, _config) {
-            var idHex = uint7ToHex(id);
             var config = [].slice.call(arguments, 6);
-            var setValue = function (cmd, val) {
-                var data = "F0 00 20 6B 7F 42 02 00 " + uint7ToHex(cmd) + idHex + uint7ToHex(val) + "F7";
-                sendSysex(data);
-                //println(data);
-            };
-
+            
             var props = {
                 "id": { value: id },
                 "type": { value: type },
@@ -47,7 +41,7 @@ function KeyLab() {
                             config = [].slice.call(arguments);
 
                         for (var i = 0; i < config.length; i++)
-                            setValue(configMap[i], config[i]);
+                            setValue(id, configMap[i], config[i]);
 
                         if (id === 0x6E)
                             for (var i = 0; i < config.length; i++)         // Quick hack, because Arturia are cunts.
@@ -82,7 +76,7 @@ function KeyLab() {
                 };
                 props["activateLED"] = {
                     value: function () {
-                        var data = "F0 00 20 6B 7F 42 02 00 10 " + idHex + (this._isLit ? "01" : "00") + " F7";
+                        var data = "F0 00 20 6B 7F 42 02 00 10 " + uint7ToHex(id) + (this._isLit ? "01" : "00") + " F7";
                         sendSysex(data);
                     }
                 }
@@ -764,9 +758,6 @@ function KeyLab() {
     );
 
     sendSysex("F0 00 20 6B 7F 42 02 00 40 02 7F F7");
-
-    //setMode(MULTI_MODE);
-    //setMode(SOUND_MODE);
 
     sendTextToKeyLab("Connected to", "Bitwig");
 
