@@ -1,8 +1,15 @@
 var kL = null;
 
+
+// TODO:
+// Clean up / fix Synthmaster library
+// Re-template Synthmaster and Omnisphere, then re-export presets
+//
+//
+
 // Ideas:
-//  2. Use transpose buttons for Pad transpose. Will require resetting the transpose value via sysex.
-//  3. Reconfigure Multi-Mode long-press buttons to follow icons at bottom of screen.
+// 1. Implement split keyboard mode
+// 2. Change sound mode so that remote controls active when remote controls page shown.
 
 function sleep(millis) {
     var date = new Date();
@@ -26,9 +33,15 @@ function KeyLab() {
 
     var midiOut = host.getMidiOutPort(0);
     var sendSysex = function (data) { midiOut.sendSysex(data); };
+    var configMap = [1, 2, 3, 4, 5, 6, 0x40, 0x41];
     var setValue = function (id, cmd, val) {
-        sleep(8);
         sendSysex("F0 00 20 6B 7F 42 02 00 " + uint7ToHex(cmd) + uint7ToHex(id) + uint7ToHex(val) + "F7");
+    };
+    var setValues = function (id, config) {
+        for (var i = 0; i < config.length; i++) {
+            sleep(8);
+            setValue(id, configMap[i], config[i]);
+        }
     };
     var loadMemory = function (preset) {
         sendSysex("F0 00 20 6B 7F 42 05 " + uint7ToHex(preset) + "F7");
@@ -54,7 +67,6 @@ function KeyLab() {
     var allControls = [];
 
     controls = this.controls = (function () {
-        var configMap = [1, 2, 3, 4, 5, 6, 0x40, 0x41];
         var defineControl = function (id, type, name, bank, index, hasLED, _config) {
             var config = [].slice.call(arguments, 6);
 
@@ -69,13 +81,6 @@ function KeyLab() {
                         if (arguments.length > 0)
                             config = [].slice.call(arguments);
 
-                        for (var i = 0; i < config.length; i++)
-                            setValue(id, configMap[i], config[i]);
-
-                        if (id === 0x6E)
-                            for (var i = 0; i < config.length; i++)         // Quick hack, because Arturia are cunts.
-                                setValue(0x0A, configMap[i], config[i]);
-
                         switch (config[0]) {
                             case 5:
                                 ccMap[config[1]][config[4]] = ctrl;
@@ -87,6 +92,9 @@ function KeyLab() {
                                 mmcMap[uint7ToHex(config[2]).trim()] = ctrl;
                                 break;
                         }
+                        setValues(id, config);
+                        if (id === 0x6E)
+                            setValues(0x0A, config);
                     }
                 }
             };
@@ -231,7 +239,7 @@ function KeyLab() {
     sendTextToKeyLab("Initializing", "Controls");
     sendSysex("F0 00 20 6B 7F 42 02 00 40 02 7F F7");
     for (var i = 0; i < allControls.length; i++)
-        allControls[i].configure();
+        host.scheduleTask(allControls[i].configure, [], 20 * i);
 
     var moveCursor = function (cursor, inc) {
         if (cursor !== undefined)
@@ -249,7 +257,18 @@ function KeyLab() {
     }
 
     var preferences = host.getPreferences();
-    var application = host.createApplication();
+    var application = this.application = host.createApplication();
+    var hostActions = new (function () {
+        var categories = application.getActionCategories();
+        for (var i = 0; i < categories.length; i++) {
+            var thisCat = this[categories[i].getName()] = {};
+            var actions = categories[i].getActions();
+            for (var j = 0; j < actions.length; j++)
+                thisCat[actions[j].getName()] = actions[j];
+        }
+    })();
+
+
     //var cTrack = host.createCursorTrack(3, 0);
     //var cDevice = cTrack.createCursorDevice();
     var cTrack = host.createArrangerCursorTrack(3, 4);      // 4 scene slots
@@ -642,10 +661,18 @@ function KeyLab() {
             var popup = host.createPopupBrowser();
             var tabIndex = -1;
             var tabNames = [];
+            var autoConfirmDelete = false;
             var shouldAudition = false;
+            preferences.getEnumSetting("Auto-Confirm Delete?", "Browser", ["Yes", "No"], "Yes")
+                .addValueObserver(function (_) { autoConfirmDelete = _; });
             popup.contentTypeNames().addValueObserver(function (_) { tabNames = _; });
             popup.selectedContentTypeIndex().addValueObserver(function (_) { tabIndex = _; _this.setIndication(); });
-            popup.exists().addValueObserver(function (browsing) { setMode(browsing ? _this : SOUND_MODE); });
+            popup.exists().addValueObserver(function (browsing) {
+                if (browsing) {
+                    hostActions.Browser["Focus Browser File List"].invoke();
+                }
+                setMode(browsing ? _this : SOUND_MODE);
+            });
             popup.title().addValueObserver(function (name) {
                 _this.name = name;
                 _this.setIndication();
@@ -684,6 +711,14 @@ function KeyLab() {
 
             this.onClick = function (ctrl) {
                 switch (ctrl.index) {
+                    case 7:
+                        hostActions.General.Delete.invoke();
+                        if (!autoConfirmDelete) return;
+                        moveCursor(cResult, 1); 
+                        hostActions.General.Yes.invoke();
+                        hostActions.Browser["Focus Browser File List"].invoke();
+                        return;
+
                     case 9:
                         popup.shouldAudition().toggle(); return;
                     default:
