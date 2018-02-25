@@ -661,10 +661,15 @@ function KeyLab() {
             var popup = host.createPopupBrowser();
             var tabIndex = -1;
             var tabNames = [];
-            var autoConfirmDelete = false;
             var shouldAudition = false;
-            preferences.getEnumSetting("Auto-Confirm Delete?", "Browser", ["Yes", "No"], "Yes")
+            var autoConfirmDelete = false;
+            preferences.getEnumSetting("Auto-Confirm Delete?", "Browser", ["Yes", "No"], "No")
                 .addValueObserver(function (_) { autoConfirmDelete = _; });
+
+            var autoSelectFirstResult = false;
+            preferences.getEnumSetting("Auto-Select first result?", "Browser", ["Yes", "No"], "Yes")
+                .addValueObserver(function (_) { autoSelectFirstResult = _; });
+
             popup.contentTypeNames().addValueObserver(function (_) { tabNames = _; });
             popup.selectedContentTypeIndex().addValueObserver(function (_) { tabIndex = _; _this.setIndication(); });
             popup.exists().addValueObserver(function (browsing) {
@@ -684,7 +689,13 @@ function KeyLab() {
             });
 
             var cResult = popup.resultsColumn().createCursorItem();
-
+            var selectFirstResult = function () {
+                host.scheduleTask(
+                    function () {
+                        hostActions.Browser["Focus Browser File List"].invoke();
+                        hostActions["Selection Navigation"]["Select first item"].invoke();
+                    }, [], 100);
+            };
             var cursorMap = [
                 popup.locationColumn().createCursorItem(),
                 popup.deviceColumn().createCursorItem(),
@@ -705,6 +716,8 @@ function KeyLab() {
                         break;
                     default:
                         moveCursor(cursorMap[ctrl.index], inc);
+                        if (autoSelectFirstResult)
+                            selectFirstResult();
                         break;
                 }
             };
@@ -714,7 +727,7 @@ function KeyLab() {
                     case 6:
                         hostActions.General.Delete.invoke();
                         if (!autoConfirmDelete) return;
-                        moveCursor(cResult, 1); 
+                        moveCursor(cResult, 1);
                         hostActions.General.Yes.invoke();
                         hostActions.Browser["Focus Browser File List"].invoke();
 
@@ -750,8 +763,14 @@ function KeyLab() {
 
             this.onParamClick = function () { popup.cancel(); };
             this.onValueClick = function () { popup.commit(); };
-            this.onParam = function (inc) { };
-            this.onValue = function (inc) { moveCursor(cResult, inc); };
+            this.onParam = function (inc) {
+                moveCursor(cursorMap[0], inc);
+                if (autoSelectFirstResult)
+                    selectFirstResult();
+            };
+            this.onValue = function (inc) {
+                moveCursor(cResult, inc);
+            };
             this.onMode = function (isMulti) {
                 popup.cancel();
                 Object.getPrototypeOf(this).onMode.call(this, isMulti);
@@ -838,40 +857,40 @@ function init() {
 }
 
 function exit() {
+
+    /*
+                        |  1 |  2 |    3 |   4 |   5 | 6 |40|41|Fad|Enc|Btn|Trnsprt|Pad|
+    Off				    | 00 |  - |    - |   - |   - | - |  |  | x | x | x |   x   | x |
+    CC Fader            | 01 | CH |   CC | MIN | MAX | 0 | 0| 1| x |   |   |       |   |
+    CC Encoder          | 01 | CH |   CC | MIN | MAX | 0 | 1| 5|   | x |   |       |   |
+    CC Relative         | 01 | CH |   CC |   0 |  7F | 1 | 1| 5|   | x |   |       |   |
+    CC Duration         | 05 | CH |   CC |  CC | CC2 | 0 | 0|  |   |   | x |   x   |   |
+    CC Toggle           | 08 | CH |   CC | OFF |  ON | 0 |  |  |   |   | x |   x   | x |
+    CC Gate             | 08 | CH |   CC | OFF |  ON | 1 |  |  |   |   | x |   x   | x |
+    Midi Note Toggle    | 09 | CH | NOTE |   0 | VEL | 0 |  |  |   |   | x |   x   | x |
+    Midi Note Gate      | 09 | CH | NOTE |   0 | VEL | 1 |  |  |   |   | x |   x   | x |
+    Keyboard Preset     | 0B |  0 |  0-9 |   0 |   0 | 0 |  |  |   |   | x |   x   | x |
+    MMC                 | 07 |  0 |  MMC |   0 |   0 | 0 |  |  |   |   | x |   x   |   |
+    NRPN                | 04 | CH |  RPN | MIN | MAX | 0 |  |  | x | x |   |       | x |
+    RPN                 | 04 | CH | NRPN | MIN | MAX | 1 |  |  | x | x |   |       | x |
+    Program Change      | 0B | CH | PROG | LSB | MSB | 1 |  |  |   |   | x |   x   |   |
+    
+    Where:
+            MIN, MAX, ON, OFF   :	Midi cc values from 0 - 0x7F sent by ther control.
+            CC, CC1, CC2	      : Midi CC number for normal and long-press respectively.
+            VEL                 : Max (or fixed) velocity for note-on events.
+            CH                  :	0-0x0F = Midi Channel 1-16
+                                    0x41   = Part1
+                                    0x40   = Part2
+                                    0x7E   = All
+                                    0x7F   = Panel
+    BB (Control ID):    0x40		Mod Wheel
+    Note: Buttons get msg 06 & 40 from ctrl center!!!
+    Encoders get msgs 1-6 + 40=1 & 41=5  always
+    
+    
+    //IDRequest: "F07E7F0601F7",
+    //IDResponse: "F07E00060200206B0200054806000201F7",
+    
+                */
 }
-
-/*
-                    |  1 |  2 |    3 |   4 |   5 | 6 |40|41|Fad|Enc|Btn|Trnsprt|Pad|
-Off				    | 00 |  - |    - |   - |   - | - |  |  | x | x | x |   x   | x |
-CC Fader            | 01 | CH |   CC | MIN | MAX | 0 | 0| 1| x |   |   |       |   |
-CC Encoder          | 01 | CH |   CC | MIN | MAX | 0 | 1| 5|   | x |   |       |   |
-CC Relative         | 01 | CH |   CC |   0 |  7F | 1 | 1| 5|   | x |   |       |   |
-CC Duration         | 05 | CH |   CC |  CC | CC2 | 0 | 0|  |   |   | x |   x   |   |
-CC Toggle           | 08 | CH |   CC | OFF |  ON | 0 |  |  |   |   | x |   x   | x |
-CC Gate             | 08 | CH |   CC | OFF |  ON | 1 |  |  |   |   | x |   x   | x |
-Midi Note Toggle    | 09 | CH | NOTE |   0 | VEL | 0 |  |  |   |   | x |   x   | x |
-Midi Note Gate      | 09 | CH | NOTE |   0 | VEL | 1 |  |  |   |   | x |   x   | x |
-Keyboard Preset     | 0B |  0 |  0-9 |   0 |   0 | 0 |  |  |   |   | x |   x   | x |
-MMC                 | 07 |  0 |  MMC |   0 |   0 | 0 |  |  |   |   | x |   x   |   |
-NRPN                | 04 | CH |  RPN | MIN | MAX | 0 |  |  | x | x |   |       | x |
-RPN                 | 04 | CH | NRPN | MIN | MAX | 1 |  |  | x | x |   |       | x |
-Program Change      | 0B | CH | PROG | LSB | MSB | 1 |  |  |   |   | x |   x   |   |
-
-Where:
-        MIN, MAX, ON, OFF   :	Midi cc values from 0 - 0x7F sent by ther control.
-        CC, CC1, CC2	      : Midi CC number for normal and long-press respectively.
-        VEL                 : Max (or fixed) velocity for note-on events.
-        CH                  :	0-0x0F = Midi Channel 1-16
-                                0x41   = Part1
-                                0x40   = Part2
-                                0x7E   = All
-                                0x7F   = Panel
-BB (Control ID):    0x40		Mod Wheel
-Note: Buttons get msg 06 & 40 from ctrl center!!!
-Encoders get msgs 1-6 + 40=1 & 41=5  always
-
-
-//IDRequest: "F07E7F0601F7",
-//IDResponse: "F07E00060200206B0200054806000201F7",
-
-            */
