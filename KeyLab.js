@@ -22,7 +22,7 @@ function KeyLab() {
     var kL = this;
 
     var midiInKeys = this.midiInKeys = host.getMidiInPort(0).createNoteInput("Keys", "80????", "90????", "B001??", "B002??", "B00B??", "B040??", "C0????", "D0????", "E0????");
-    this.midiInKeys.setShouldConsumeEvents(false);  // Disable the consuming of events by the NoteInputs, so they are also sent to onMidi
+    this.midiInKeys.setShouldConsumeEvents(true);  // Disable the consuming of events by the NoteInputs, so they are also sent to onMidi
 
     if (DRUMPADS) { // Check if Drumpads are available for the model, if yes, create an Input for them
         var midiInPads = this.midiInPads = host.getMidiInPort(0).createNoteInput("Pads", "?9????");
@@ -258,7 +258,7 @@ function KeyLab() {
 
     var preferences = host.getPreferences();
     var application = this.application = host.createApplication();
-    var hostActions = new (function () {
+    var hostActions = this.hostActions = new (function () {
         var categories = application.getActionCategories();
         for (var i = 0; i < categories.length; i++) {
             var thisCat = this[categories[i].getName()] = {};
@@ -711,16 +711,25 @@ function KeyLab() {
 
             this.onClick = function (ctrl) {
                 switch (ctrl.index) {
-                    case 7:
+                    case 6:
                         hostActions.General.Delete.invoke();
                         if (!autoConfirmDelete) return;
                         moveCursor(cResult, 1); 
                         hostActions.General.Yes.invoke();
                         hostActions.Browser["Focus Browser File List"].invoke();
+
+                        return;
+                    case 7:
+                        hostActions.General["Reveal File"].invoke();
+                        return;
+
+                    case 8:
+                        hostActions.General["Edit File Metadata..."].invoke();
                         return;
 
                     case 9:
                         popup.shouldAudition().toggle(); return;
+
                     default:
                         if (ctrl.index < tabNames.length)
                             popup.selectedContentTypeIndex().set(ctrl.index);
