@@ -1,31 +1,52 @@
 # Keylab88forBitwig
 Controller script for using Arturia Keylab 88 with Bitwig 2.x
 
-Arturia's Keylab 88 has somewhat buggy firmware, and somewhere around firmware version 1.2.6 the Bitwig scripts stopped working because (from what I could tell) Arturia cocked-up the sysex identifiers for some of the controls, which caused Thomas Hezle's original script to address the controls incorrectly. When Bitwig released v2.0, the Keylab controller code got integrated into Bitwig as a Java extension, which made matters worse - Bitwig insisted on addressing the Keylab 88 controller with incorrect sysex messages.
+On launch, Bitwig and the Arturia Keylab series seemed like perfect bed-follows, but the Keylab 88 was left out.
+Modifications where made to Thomas Helzle's original repository to accomodate the Keylab 88, and it appears as though this was later ported to java for inclusion as an embedded extension in Bitwig 2.x.
+The problem is that as of Keylab firmware v1.2.6, the Keylab 88 does not behave as expected to the Sysex message sent to it, leaving Keylab 88 users with a less-than-ideal experience. 
 
-This project aims to address these issues, as well as provide a far deeper integration between the Keylab and Bitwig. 
+This script sports significantly deeper integration into Bitwig's excellent workflow, specifically:
 
-Noteworthy characteristics & features:
+1) Deep integration with Bitwig's browsing experience. 
+   Click Param to launch the Bitwig browser, and select presets, devices, samples, multi-samples with the value encoder.
+   Filter on category, creator, tags, file type, etc. using Keylab's knobs.
+   Confirm or cancel browsing using the Value and Param buttons respectively. 
+   The entire browsing expereince can be completed without touching your computer or mouse!
 
-1) Utilizes the v2 controller API (this means that tt only works with Bitwig 2.x), because...
+2) Remote Control Mode:    
+   In Keylab's Sound Mode Bank 1, the encoder knobs map to the remote control pages of the selected device.
+   You can easily move between remote control pages by using either buttons 1-10, or scroll pages using P10.
 
-2) Deep integration with Bitwig's browsing experience. 
-   You can launch and complete your browsing from the Keylab, without touching the mouse or computer keyboard.
+3) User Control Mode:
+   In Keylab's Sound Mode Bank 2, the encoder knobs map to user controls 1-72.
+   User controls are freely assignable and are not sensitive to track or device selection.
+   The controls are organized into 9 pages of 8 knobs - mappable to anything you assign them to.
+   Additionally, button 10 puts Keylab into MIDI CC mode, where a different CC is sent for inc/dec knob turns, enabling midi-mapping within VST plugins.
 
-3) No more "BITWIG MODE" and "ARTURIA MODE". 
-   These modes where a somewhat awkward nod to the Analogue Lab software, at the expense of a great overall Bitwig experience.
-   They are replaced with 5 modes:
-   * Arranger Mode			- Buttons and Knobs mapped to functions relevant to the arranger layout.
-   * Mix Mode				- Buttons and Knobs mapped to functions relevant to the mixer layout.
-   * Edit Mode				- Buttons and Knobs mapped to functions relevant to the note edit layout.
-   * Remote Control Mode    - 80 controls (10 pages x 8 knobs) map to the remote control pages of the selected device.
-   * User Control Mode      - 72 controls (9 pages x 8 knobs) mappable to anything you assign them to. 
-							  1 page x 10 knobs send different MIDI CC for inc/dec knob turns, for VST midi-mapping.
+4) Multi Mode:
+   When Keylab in in Multi-mode, you can easily switch between Bitwig's Arrange, Mix and Edit layouts using buttons 2,3 and 4 respectively.
+   In each layout, the remaining buttons are mapped according to what is available in each respective layout (see the contoller help for details).
+   Each button also supports a long-hold operation.
     
-4) Stop button = Tempo tap (when transport is stopped).
+5) Tempo Tap:
+   When the transport is stopped, the STOP transport button can be used to tempo tap.
 
-5) Faders are hard-coded to the first 9 banks. 
-   This might be a deal-breaker for some folks, but it's what I prefer.
+6) Consistent Track and Device navigation:
+   Except when in browse mode, the Param and Value knobs will always navigate tracks and devices respectively.
+   In sound mode, the clicking value knob button will show/hide the selected VST plugin window.
+
+
+
+
+
+Potential niggles that you should know about:
+
+1) Faders are hard-coded to controlling the volume for the first 9 tracks. 
+   This might be a deal-breaker for some folks, but non-motorized faders have been a pet-peave of mine since the dawn of midi.
+
+2) ARTURIA MODE no longer exists. This mode seemed like an awkward nod to the Analog Lab software, at the expense of a great overall Bitwig experience.
+   In future versions of this script I might add in something to support Analog Lab, but frankly this isn't a high priority given the plugins I prefer to use.
+
 
 
 If you would like to contribute, please contact me on maranite at gmail.
