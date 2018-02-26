@@ -2,8 +2,8 @@
 Controller script for using Arturia Keylab 88 with Bitwig 2.x
 
 On launch, Bitwig and the Arturia Keylab series seemed like perfect bed-follows, but the Keylab 88 was left out.
-Modifications where made to Thomas Helzle's original repository to accomodate the Keylab 88, and it appears as though this was later ported to java for inclusion as an embedded extension in Bitwig 2.x.
-The problem is that as of Keylab firmware v1.2.6, the Keylab 88 does not behave as expected to the Sysex message sent to it, leaving Keylab 88 users with a less-than-ideal experience. 
+Modifications were made to Thomas Helzle's original repository to accomodate the Keylab 88, which appears to have later been ported to java for inclusion as an embedded extension in Bitwig 2.x.
+As of Arturia's Keylab firmware v1.2.6, the Keylab 88 does not behave as expected to the Sysex message sent to it, leaving Keylab 88 users with a less-than-ideal experience. 
 
 This script sports significantly deeper integration into Bitwig's excellent workflow, specifically:
 
