@@ -1,17 +1,31 @@
 # Keylab88forBitwig
 Controller script for using Arturia Keylab 88 with Bitwig 2.x
 
-Arturia's Keylab 88 has somewhat buggy firmware, and somewhere around firmware version 1.2.6 the Bitwig scripts stopped working. Bitwig then release v2.x where the Keylab controller was integrated into Bitwig as a Java extension, and things got even worse.
+Arturia's Keylab 88 has somewhat buggy firmware, and somewhere around firmware version 1.2.6 the Bitwig scripts stopped working because (from what I could tell) Arturia cocked-up the sysex identifiers for some of the controls, which caused Thomas Hezle's original script to address the controls incorrectly. When Bitwig released v2.0, the Keylab controller code got integrated into Bitwig as a Java extension, which made matters worse - Bitwig insisted on addressing the Keylab 88 controller with incorrect sysex messages.
 
-This project aims to address those issues, as well as provide a far deeper integration between the Keylab and Bitwig. There are several noteworthy features of this script that may influence whether or not you want to use it:
+This project aims to address these issues, as well as provide a far deeper integration between the Keylab and Bitwig. 
 
-1) It only works with Bitwig 2.x (or newer versions that support the level 2 controller API).
-2) It does away with "BITWIG MODE" in favor of a 10 remote control pages, each page containing 8 knob assignments.
-3) It does away with "ARTURIA MODE", instead offering:
-    9 pages of freely assignable user controls, each page consisting of 10 knobs.
-    1 page of 10 MIDI CC controls. Different CC messages are used for inc/dec knob turns.
-4) The stop button can be used to tempo tab when the transport is not playing.
-5) The faders are hard-coded to the first 9 banks. This might be a deal-breaker for some folks, but it's what I prefer.
-6) Keylab Pads can be set to Clip Launcher mode or Drumpad mode, where the pads can be locked to a drumpad track. 
+Noteworthy characteristics & features:
+
+1) Utilizes the v2 controller API (this means that tt only works with Bitwig 2.x), because...
+
+2) Deep integration with Bitwig's browsing experience. 
+   You can launch and complete your browsing from the Keylab, without touching the mouse or computer keyboard.
+
+3) No more "BITWIG MODE" and "ARTURIA MODE". 
+   These modes where a somewhat awkward nod to the Analogue Lab software, at the expense of a great overall Bitwig experience.
+   They are replaced with 5 modes:
+   * Arranger Mode			- Buttons and Knobs mapped to functions relevant to the arranger layout.
+   * Mix Mode				- Buttons and Knobs mapped to functions relevant to the mixer layout.
+   * Edit Mode				- Buttons and Knobs mapped to functions relevant to the note edit layout.
+   * Remote Control Mode    - 80 controls (10 pages x 8 knobs) map to the remote control pages of the selected device.
+   * User Control Mode      - 72 controls (9 pages x 8 knobs) mappable to anything you assign them to. 
+							  1 page x 10 knobs send different MIDI CC for inc/dec knob turns, for VST midi-mapping.
+    
+4) Stop button = Tempo tap (when transport is stopped).
+
+5) Faders are hard-coded to the first 9 banks. 
+   This might be a deal-breaker for some folks, but it's what I prefer.
+
 
 If you would like to contribute, please contact me on maranite at gmail.
