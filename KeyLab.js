@@ -39,7 +39,7 @@ function KeyLab() {
     };
     var setValues = function (id, config) {
         for (var i = 0; i < config.length; i++) {
-            sleep(8);
+            sleep(40);
             setValue(id, configMap[i], config[i]);
         }
     };
