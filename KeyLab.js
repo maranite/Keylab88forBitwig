@@ -18,6 +18,13 @@ function sleep(millis) {
     while (curDate - date < millis);
 }
 
+function unCamelCase(str) {
+    return str
+        .replace(/([a-z])([A-Z])/g, '$1 $2')                            // insert a space between lower & upper
+        .replace(/\b([A-Z]+)([A-Z])([a-z])/, '$1 $2$3')                 // space before last upper in a sequence followed by lower
+        .replace(/^./, function (str) { return str.toUpperCase(); });   // uppercase the first character
+}
+
 function KeyLab() {
     var kL = this;
 
@@ -59,8 +66,30 @@ function KeyLab() {
             controls.buttons[i].isLit = (index === i);
     };
     var sendTextToKeyLab = function (line1, line2) {
+        println(line1);
+        println(line2);
         sendSysex("F0 00 20 6B 7F 42 04 00 60 01 " + line1.toHex(16) + " 00 02 " + line2.toHex(16) + " 00 F7");
     };
+
+    var sendLongTextToKeyLab = function (heading, longText) {
+        longText = unCamelCase(longText);
+        if (longText.length > 16) {
+            var l1 = "";
+            var l2 = "";
+            longText.split(" ").forEach(function (_) {
+                if ((l1.length + _.length) < 17)
+                    l1 = l1 + _ + " ";
+                else
+                    l2 = l2 + _ + " ";
+            });
+            sendTextToKeyLab(l1, l2);
+        }
+        else {
+            sendTextToKeyLab(heading, longText);
+        }
+    };
+
+
 
     var ccMap = [[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], []];
     var mmcMap = {};
@@ -281,7 +310,7 @@ function KeyLab() {
     padTrackBank.followCursorTrack(cTrack);
     var isPlaying = false;
     var mode = null;
-    var setMode = function (value) {
+    var setModeActual = function (value) {
         if (value !== this._mode) {
             if (mode !== null) {
                 mode.active = false;
@@ -295,6 +324,11 @@ function KeyLab() {
                 //host.showPopupNotification(value.name);
             }
         }
+    };
+
+    var setMode = function (value) {
+        setModeActual(value);
+        host.scheduleTask(setModeActual, [value], 10);
     };
 
     var padOps = new (function () {
@@ -482,7 +516,7 @@ function KeyLab() {
                     if (userControlPageIndex < userBanks)
                         getUserControl(index).inc(inc, 128);
                     else {
-                        var cc = 0x40 + (2 * index) + (inc > 0 ? 1 : 0);
+                        var cc = 0x46 + (2 * index) + (inc > 0 ? 1 : 0);
                         midiInKeys.sendRawMidiEvent(0xB0, cc, 0x7f);
                     }
                 }
@@ -672,23 +706,32 @@ function KeyLab() {
 
             popup.contentTypeNames().addValueObserver(function (_) { tabNames = _; });
             popup.selectedContentTypeIndex().addValueObserver(function (_) { tabIndex = _; _this.setIndication(); });
+            popup.selectedContentTypeName().addValueObserver(function (name) {
+                _this.name = name;
+                _this.setIndication();
+            });
             popup.exists().addValueObserver(function (browsing) {
                 if (browsing) {
                     hostActions.Browser["Focus Browser File List"].invoke();
                 }
                 setMode(browsing ? _this : SOUND_MODE);
             });
-            popup.title().addValueObserver(function (name) {
-                _this.name = name;
-                _this.setIndication();
-            });
+
             popup.shouldAudition().addValueObserver(function (_) {
                 shouldAudition = _;
-                if (_this.active)
+                if (_this.active) {
                     controls.buttons[9].isLit = _;
+                    sendTextToKeyLab(_this.name, _ ? "Audition On" : "Audition Off");
+                }
             });
 
             var cResult = popup.resultsColumn().createCursorItem();
+
+            cResult.addValueObserver(32, "", function (val) {
+                if (_this.active && val && val.length > 0   )
+                    sendLongTextToKeyLab(_this.name, val);
+            });
+
             var selectFirstResult = function () {
                 host.scheduleTask(
                     function () {
@@ -702,7 +745,6 @@ function KeyLab() {
                 popup.categoryColumn().createCursorItem(),
                 popup.tagColumn().createCursorItem(),
                 popup.creatorColumn().createCursorItem(),
-
                 popup.smartCollectionColumn().createCursorItem(),
                 popup.deviceTypeColumn().createCursorItem(),
                 popup.fileTypeColumn().createCursorItem()
@@ -758,6 +800,7 @@ function KeyLab() {
                     controls.multi.isLit = false;
                     setButtonLight(tabIndex, 0, 5);
                     controls.buttons[9].isLit = shouldAudition;
+                    sendTextToKeyLab(_this.name, "");
                 }
             };
 
