@@ -1,22 +1,10 @@
 var kL = null;
 
 
-// TODO:
-// Clean up / fix Synthmaster library
-// Re-template Synthmaster and Omnisphere, then re-export presets
-//
-//
-
 // Ideas:
 // 1. Implement split keyboard mode
 // 2. Change sound mode so that remote controls active when remote controls page shown.
 
-function sleep(millis) {
-    var date = new Date();
-    var curDate = null;
-    do { curDate = new Date(); }
-    while (curDate - date < millis);
-}
 
 function unCamelCase(str) {
     return str
@@ -39,36 +27,35 @@ function KeyLab() {
     }
 
     var midiOut = host.getMidiOutPort(0);
-    var sendSysex = function (data) { midiOut.sendSysex(data); };
-    var configMap = [1, 2, 3, 4, 5, 6, 0x40, 0x41];
-    var setValue = function (id, cmd, val) {
-        sendSysex("F0 00 20 6B 7F 42 02 00 " + uint7ToHex(cmd) + uint7ToHex(id) + uint7ToHex(val) + "F7");
-    };
+    var sendSysex = function (sysex) { midiOut.sendSysex(sysex); };
+    var sendKlSysex = function (sysex) { midiOut.sendSysex("F0 00 20 6B 7F 42 " + sysex + "F7"); };
+
+    var loadMemory = function (preset) { sendKlSysex("05 " + uint7ToHex(preset)); };
+    var saveMemory = function (preset) { sendKlSysex("06 " + uint7ToHex(preset)); };
+    var getValue = function (id, cmd) { sendKlSysex("01 00 " + uint7ToHex(cmd) + uint7ToHex(id)); };
+    var setValue = function (id, cmd, val) { sendKlSysex("02 00 " + uint7ToHex(cmd) + uint7ToHex(id) + uint7ToHex(val)); };
+
     var setValues = function (id, config) {
-        for (var i = 0; i < config.length; i++) {
-            sleep(40);
-            setValue(id, configMap[i], config[i]);
-        }
+        var preamble = "F0 00 20 6B 7F 42 02 00 ";
+        var cmd = ["01 ", "02 ", "03 ", "04 ", "05 ", "06 ", "40 ", "41 "];
+
+        config.forEach(function (cfg, i) {
+            var sysex = preamble + cmd[i] + uint7ToHex(id) + uint7ToHex(cfg) + "F7";
+            host.scheduleTask(sendSysex, [sysex], (id * 8) + (i * 10));
+        });
     };
-    var loadMemory = function (preset) {
-        sendSysex("F0 00 20 6B 7F 42 05 " + uint7ToHex(preset) + "F7");
+
+    var sendTextToKeyLab = function (line1, line2) {
+        var sysex = "F0 00 20 6B 7F 42 04 00 60 01 " + line1.toHex(16) + "00 02 " + line2.toHex(16) + "00 F7";
+        //sendSysex(sysex);
+        host.scheduleTask(sendSysex, [sysex], 5);
     };
-    var saveMemory = function (preset) {
-        sendSysex("F0 00 20 6B 7F 42 06 " + uint7ToHex(preset) + "F7");
-    };
-    var getValue = function (id, cmd) {
-        this.sendSysex("F0 00 20 6B 7F 42 01 00 " + uint7ToHex(cmd) + uint7ToHex(id) + "F7");
-    };
+
     var setButtonLight = function (index, from, to) {
         from = from || 0;
         to = to || 9;
         for (var i = from; i <= to; i++)
             controls.buttons[i].isLit = (index === i);
-    };
-    var sendTextToKeyLab = function (line1, line2) {
-        println(line1);
-        println(line2);
-        sendSysex("F0 00 20 6B 7F 42 04 00 60 01 " + line1.toHex(16) + " 00 02 " + line2.toHex(16) + " 00 F7");
     };
 
     var sendLongTextToKeyLab = function (heading, longText) {
@@ -89,16 +76,13 @@ function KeyLab() {
         }
     };
 
-
-
     var ccMap = [[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], []];
     var mmcMap = {};
     var allControls = [];
 
-    controls = this.controls = (function () {
+    controls = (function () {
         var defineControl = function (id, type, name, bank, index, hasLED, _config) {
             var config = [].slice.call(arguments, 6);
-
             var props = {
                 "id": { value: id },
                 "type": { value: type },
@@ -107,14 +91,18 @@ function KeyLab() {
                 "config": { value: config },
                 "configure": {
                     value: function () {
+
                         if (arguments.length > 0)
                             config = [].slice.call(arguments);
 
                         switch (config[0]) {
                             case 5:
-                                ccMap[config[1]][config[4]] = ctrl;
+                                ccMap[config[1]][config[4]] = ctrl;         // long press
+                                ccMap[config[1]][config[2]] = ctrl;         // short press
+                                break;
                             case 1:
                             case 8:
+                                //println("Configuring " + name + " with " + config);
                                 ccMap[config[1]][config[2]] = ctrl;
                                 break;
                             case 7:
@@ -142,16 +130,15 @@ function KeyLab() {
                 };
                 props["activateLED"] = {
                     value: function () {
-                        var data = "F0 00 20 6B 7F 42 02 00 10 " + uint7ToHex(id) + (this._isLit ? "01" : "00") + " F7";
-                        sendSysex(data);
+                        setValue(id, 0x10, this._isLit ? 1 : 0);
                     }
-                }
+                };
             }
 
             var ctrl = Object.create(Object.prototype, props);
             allControls.push(ctrl);
             return ctrl;
-        }
+        };
 
         var defineTransport = function (id, name, mmcID) {
             return defineControl(id, "Transport", name, undefined, undefined, true, 7, 0, mmcID, 0, 0xF7, 1);
@@ -174,9 +161,9 @@ function KeyLab() {
         };
 
         return {
-            volume: defineControl(0x30, "Volume", "Volume", undefined, undefined, false, 1, 0, 0x07, 0, 0x7F, 1),
-            param: defineControl(0x31, "Other", "Param", undefined, undefined, false, 1, 0, 0x70, 0, 0x7F, 1),
-            value: defineControl(0x33, "Other", "Value", undefined, undefined, false, 1, 0, 0x72, 0, 0x7F, 1),
+            volume:  defineControl(0x30, "Volume", "Volume", undefined, undefined, false, 1, 0, 0x07, 0, 0x7F, 1),
+            param:   defineControl(0x31, "Other", "Param", undefined, undefined, false, 1, 0, 0x70, 0, 0x7F, 1),
+            value:   defineControl(0x33, "Other", "Value", undefined, undefined, false, 1, 0, 0x72, 0, 0x7F, 1),
             paramButton: defineControl(0x32, "Other", "Param Click", undefined, undefined, false, 8, 0, 0x71, 0, 0x7F, 1),
             valueButton: defineControl(0x34, "Other", "Value Click", undefined, undefined, false, 8, 0, 0x73, 0, 0x7F, 1),
             sound: defineControl(0x1E, "Mode", "Sound", undefined, undefined, true, 8, 0, 0x76, 0, 0x7F, 1),
@@ -262,13 +249,8 @@ function KeyLab() {
                 defineKnob(0x28, 2, 8, 0x2B),
                 defineKnob(0x2A, 2, 9, 0x2C)
             ]
-        };
+        }
     })();
-
-    sendTextToKeyLab("Initializing", "Controls");
-    sendSysex("F0 00 20 6B 7F 42 02 00 40 02 7F F7");
-    for (var i = 0; i < allControls.length; i++)
-        host.scheduleTask(allControls[i].configure, [], 20 * i);
 
     var moveCursor = function (cursor, inc) {
         if (cursor !== undefined)
@@ -297,7 +279,6 @@ function KeyLab() {
         }
     })();
 
-
     //var cTrack = host.createCursorTrack(3, 0);
     //var cDevice = cTrack.createCursorDevice();
     var cTrack = host.createArrangerCursorTrack(3, 4);      // 4 scene slots
@@ -310,8 +291,9 @@ function KeyLab() {
     padTrackBank.followCursorTrack(cTrack);
     var isPlaying = false;
     var mode = null;
+
     var setModeActual = function (value) {
-        if (value !== this._mode) {
+        if (value !== mode) {
             if (mode !== null) {
                 mode.active = false;
                 mode.setIndication();
@@ -461,7 +443,7 @@ function KeyLab() {
         return function (ctor) {
             ctor.prototype = mode_prototype;
             return new ctor();
-        }
+        };
     })();
 
     var SOUND_MODE = createMode(
@@ -509,7 +491,7 @@ function KeyLab() {
                         case 9: moveCursor(cDevice, inc); return;
 
                         default:
-                            cRemote.getParameter(index - ((index > 4) ? 1 : 0)).inc(inc, 128);
+                            cRemote.getParameter(index - (index > 4 ? 1 : 0)).inc(inc, 128);
                             return;
                     }
                 } else {
@@ -728,7 +710,7 @@ function KeyLab() {
             var cResult = popup.resultsColumn().createCursorItem();
 
             cResult.addValueObserver(32, "", function (val) {
-                if (_this.active && val && val.length > 0   )
+                if (_this.active && val && val.length > 0)
                     sendLongTextToKeyLab(_this.name, val);
             });
 
@@ -821,6 +803,16 @@ function KeyLab() {
             this.bank = 0;
         });
 
+    var transport = this.transport = host.createTransport();
+    transport.isPlaying().addValueObserver(
+        function (playing) {
+            isPlaying = playing;
+            controls.play.isLit = playing;
+            controls.stop.isLit = !playing;
+        });
+    transport.isArrangerLoopEnabled().addValueObserver(function (isLoopOn) { controls.loop.isLit = isLoopOn; });
+    transport.isArrangerRecordEnabled().addValueObserver(function (isRecordActive) { controls.record.isLit = isRecordActive; });
+
     host.getMidiInPort(0).setMidiCallback(
         function (status, data1, data2) {
             switch (status & 0xF0) {
@@ -860,16 +852,6 @@ function KeyLab() {
         }
     );
 
-    var transport = this.transport = host.createTransport();
-    transport.isPlaying().addValueObserver(
-        function (playing) {
-            isPlaying = playing;
-            controls.play.isLit = playing;
-            controls.stop.isLit = !playing;
-        });
-    transport.isArrangerLoopEnabled().addValueObserver(function (isLoopOn) { controls.loop.isLit = isLoopOn; });
-    transport.isArrangerRecordEnabled().addValueObserver(function (isRecordActive) { controls.record.isLit = isRecordActive; });
-
     host.getMidiInPort(0).setSysexCallback(
         function (data) {
             if (data.substring(0, 4) == "f07f" && data.substring(6, 8) == "06") {
@@ -888,9 +870,13 @@ function KeyLab() {
         }
     );
 
-    //host.scheduleTask(setMode, [MULTI_MODE], 51 * allControls.length);
-    setMode(MULTI_MODE);
-    sendTextToKeyLab("Connected to", "Bitwig");
+    sendSysex("F0 00 20 6B 7F 42 02 00 40 02 7F F7");
+    for (var i = 0; i < allControls.length; i++)
+        allControls[i].configure();
+    //host.scheduleTask(allControls[i].configure, [], 20 * i);
+
+    //host.scheduleTask(setMode, [SOUND_MODE], 2000);
+    //setMode(MULTI_MODE);
 
     return this;
 }
