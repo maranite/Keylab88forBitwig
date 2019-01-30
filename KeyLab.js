@@ -161,9 +161,9 @@ function KeyLab() {
         };
 
         return {
-            volume:  defineControl(0x30, "Volume", "Volume", undefined, undefined, false, 1, 0, 0x07, 0, 0x7F, 1),
-            param:   defineControl(0x31, "Other", "Param", undefined, undefined, false, 1, 0, 0x70, 0, 0x7F, 1),
-            value:   defineControl(0x33, "Other", "Value", undefined, undefined, false, 1, 0, 0x72, 0, 0x7F, 1),
+            volume: defineControl(0x30, "Volume", "Volume", undefined, undefined, false, 1, 0, 0x07, 0, 0x7F, 1),
+            param: defineControl(0x31, "Other", "Param", undefined, undefined, false, 1, 0, 0x70, 0, 0x7F, 1),
+            value: defineControl(0x33, "Other", "Value", undefined, undefined, false, 1, 0, 0x72, 0, 0x7F, 1),
             paramButton: defineControl(0x32, "Other", "Param Click", undefined, undefined, false, 8, 0, 0x71, 0, 0x7F, 1),
             valueButton: defineControl(0x34, "Other", "Value Click", undefined, undefined, false, 8, 0, 0x73, 0, 0x7F, 1),
             sound: defineControl(0x1E, "Mode", "Sound", undefined, undefined, true, 8, 0, 0x76, 0, 0x7F, 1),
@@ -249,12 +249,12 @@ function KeyLab() {
                 defineKnob(0x28, 2, 8, 0x2B),
                 defineKnob(0x2A, 2, 9, 0x2C)
             ]
-        }
+        };
     })();
 
     var moveCursor = function (cursor, inc) {
         if (cursor !== undefined)
-            (inc > 0) ? cursor.selectNext() : cursor.selectPrevious();
+            inc > 0 ? cursor.selectNext() : cursor.selectPrevious();
     };
 
     var masterTrack = host.createMasterTrack(0);
@@ -283,6 +283,20 @@ function KeyLab() {
     //var cDevice = cTrack.createCursorDevice();
     var cTrack = host.createArrangerCursorTrack(3, 4);      // 4 scene slots
     var cDevice = host.createEditorCursorDevice(0);
+    var cDeviceSlot = cDevice.getCursorSlot();
+    var deviceIsPlugin = false; cDevice.isPlugin().addValueObserver(function (_) { deviceIsPlugin = _; });
+    var deviceIsWindowOpen = false; cDevice.isWindowOpen().addValueObserver(function (_) { deviceIsWindowOpen = _; });
+    var deviceName = false; cDevice.name().addValueObserver(function (_) { deviceName = _; });
+    var deviceHasNext = false; cDevice.hasNext().addValueObserver(function (_) { deviceHasNext = _; });
+    var deviceHasPrevious = false; cDevice.hasPrevious().addValueObserver(function (_) { deviceHasPrevious = _; });
+    var deviceIsNested = false; cDevice.isNested().addValueObserver(function (_) { deviceIsNested = _; });
+    var deviceHasSlots = false; cDevice.hasSlots().addValueObserver(function (_) { deviceHasSlots = _; });
+    var deviceHasDrumPads = false; cDevice.hasDrumPads().addValueObserver(function (_) { deviceHasDrumPads = _; });
+    var deviceIsExpanded = false; cDevice.isExpanded().addValueObserver(function (_) { deviceIsExpanded = _; });
+
+    var deviceSlotName = false; cDeviceSlot.name().addValueObserver(function (_) { deviceSlotName = _; });
+    var deviceSlotExists = false; cDeviceSlot.exists().addValueObserver(function (_) { deviceSlotExists = _; });
+
     var browser = cDevice.createDeviceBrowser(1, 1);
     var cBrowser = browser.createCursorSession();
     var arranger = host.createArranger();
@@ -326,7 +340,7 @@ function KeyLab() {
                 controls.pads[i].isLit = (padLightsFlipFlop & slotPlaybackStates[i]) > 0;
 
             host.scheduleTask(setPadLights, [], 150);
-        }
+        };
 
         Object.defineProperties(this, {
             "padOffset": {
@@ -359,8 +373,8 @@ function KeyLab() {
                     }
                     if (value) setPadLights();
 
-                    for (var i = 0; i < 4; i++)
-                        padTrackBank.getTrack(i).clipLauncherSlotBank().setIndication(value);
+                    for (var r = 0; r < 4; r++)
+                        padTrackBank.getTrack(r).clipLauncherSlotBank().setIndication(value);
                 }
             }
         });
@@ -371,9 +385,9 @@ function KeyLab() {
             launcherBank.addPlaybackStateObserver(
                 function (slotIndex, playbackState, isQueued) {
                     var padIndex = (slotIndex * 4) + i;
-                    slotPlaybackStates[padIndex] = playbackState == "playing"
+                    slotPlaybackStates[padIndex] = playbackState === "playing"
                         ? (isQueued ? 1 : 4)
-                        : (playbackState == "stopping" && isQueued ? 7 : 0);
+                        : (playbackState === "stopping" && isQueued ? 7 : 0);
                 });
         }
     })();
@@ -393,10 +407,10 @@ function KeyLab() {
             onVolume: function (inc) { masterTrack.getVolume().inc(inc, 128); },
             setIndication: function () {
                 if (this.active) {
-                    controls.bank1.isLit = (this.bank & 1) == 1;
-                    controls.bank2.isLit = (this.bank & 2) == 2;
-                    controls.sound.isLit = (this.soundMulti & 1) == 1;
-                    controls.multi.isLit = (this.soundMulti & 2) == 2;
+                    controls.bank1.isLit = (this.bank & 1) === 1;
+                    controls.bank2.isLit = (this.bank & 2) === 2;
+                    controls.sound.isLit = (this.soundMulti & 1) === 1;
+                    controls.multi.isLit = (this.soundMulti & 2) === 2;
 
                     var actions = this.buttonActions;
                     if (actions !== undefined && actions.length > 0)
@@ -405,7 +419,7 @@ function KeyLab() {
                 }
             },
             onClick: function (ctrl) {
-                if (this.buttonActions === undefined || this.buttonActions.length == 0) return;
+                if (this.buttonActions === undefined || this.buttonActions.length === 0) return;
                 var action = this.buttonActions[ctrl.index];
                 if (action !== undefined) action.onClick();
             },
@@ -419,7 +433,7 @@ function KeyLab() {
             },
             onMode: function (isMulti) {
                 setMode(isMulti ? MULTI_MODE : SOUND_MODE);
-                if (preferModeSwitchesLayout.get() == "Yes") {
+                if (preferModeSwitchesLayout.get() === "Yes") {
                     application.setPanelLayout(isMulti ? "MIX" : "ARRANGE");
                 }
             },
@@ -454,8 +468,6 @@ function KeyLab() {
             var remotePageNames = [];
             cRemote.pageNames().addValueObserver(function (_) { remotePageNames = _; });
             //cDevice.isRemoteControlsSectionVisible
-            cDevice.isPlugin().markInterested();
-            cDevice.isWindowOpen().markInterested();
 
             var userBanks = 9;
             var uControls = host.createUserControls(100);
@@ -466,12 +478,11 @@ function KeyLab() {
             this.name = "Sound Mode";
             var remotePageIndex = 0;
             var userControlPageIndex = 0;
-            var getUserControl = function (index) { return uControls.getControl(index + (10 * userControlPageIndex)); }
-            cDevice.name().markInterested();
+            var getUserControl = function (index) { return uControls.getControl(index + (10 * userControlPageIndex)); };
 
             this.onParamClick = function () { browser.startBrowsing(); };
             this.onValue = function (inc) {
-                if (this.bank == 1) {
+                if (this.bank === 1) {
                     moveCursor(cDevice, inc);
                     sendTextToKeyLab("Device:", cDevice.name().get());
                 }
@@ -482,13 +493,34 @@ function KeyLab() {
             };
             this.onEncoder = function (ctrl, inc) {
                 var index = ctrl.index;
-                if (this.bank == 1) {
+                if (this.bank === 1) {
                     switch (index) {
                         case 4:
                             inc > 0 ? cRemote.selectNextPage(true) : cRemote.selectPreviousPage(true);
                             return;
 
-                        case 9: moveCursor(cDevice, inc); return;
+                        case 9:
+                            if (!cDevice.isEnabled())
+                                return;
+
+                            if (deviceIsExpanded) {
+                                if (inc > 0) {
+                                    if (deviceSlotExists) {
+                                        cDevice.selectFirstInSlot(deviceSlotName);
+                                        return;
+                                    }
+                                    //if (cDevice.hasDrumPads().get()) {
+                                    //    println("Selecting Drumpad");
+                                    //    cDevice.selectFirstInKeyPad(0x24);
+                                    //    return;
+                                    //}
+                                }
+                            }
+                            if (deviceIsNested && !(inc > 0 ? deviceHasNext : deviceHasPrevious))
+                                cDevice.selectParent();
+
+                            inc > 0 ? cDevice.selectNext() : cDevice.selectPrevious();
+                            return;
 
                         default:
                             cRemote.getParameter(index - (index > 4 ? 1 : 0)).inc(inc, 128);
@@ -507,17 +539,17 @@ function KeyLab() {
             this.setIndication = function () {
                 Object.getPrototypeOf(this).setIndication.call(this);
                 for (var i = 0; i < 8; i++)
-                    cRemote.getParameter(i).setIndication(this.active && (this.bank == 1));
+                    cRemote.getParameter(i).setIndication(this.active && (this.bank === 1));
 
                 for (var h = 0; h < userBanks; h++)
                     for (var j = 0; j < 10; j++)
-                        uControls.getControl((h * 10) + j).setIndication(this.active && (this.bank == 2) && h == userControlPageIndex);
+                        uControls.getControl((h * 10) + j).setIndication(this.active && (this.bank === 2) && h === userControlPageIndex);
 
                 controls.sound.isLit = this.active;
                 if (this.active) {
                     controls.multi.isLit = false;
-                    controls.bank1.isLit = (this.bank & 1) == 1;
-                    controls.bank2.isLit = (this.bank & 2) == 2;
+                    controls.bank1.isLit = (this.bank & 1) === 1;
+                    controls.bank2.isLit = (this.bank & 2) === 2;
 
                     switch (this.bank) {
                         case 1:
@@ -538,7 +570,7 @@ function KeyLab() {
 
             this.onClick = function (ctrl) {
                 var index = ctrl.index;
-                if (this.bank == 1) {
+                if (this.bank === 1) {
                     if (index < cRemote.pageNames().get().length)
                         cRemote.selectedPageIndex().set(index);
                 } else {
@@ -592,9 +624,9 @@ function KeyLab() {
 
             var arrangerActions = [
             /*0 */ clickable(function () { application.toggleInspector(); }),
-            /*1 */ clickable(function () { application.setPanelLayout(panelLayouts[0]); }, function () { return panelLayoutIndex == 0; }),
-            /*2 */ clickable(function () { application.setPanelLayout(panelLayouts[1]); }, function () { return panelLayoutIndex == 1; }),
-            /*3 */ clickable(function () { application.setPanelLayout(panelLayouts[2]); }, function () { return panelLayoutIndex == 2; }),
+            /*1 */ clickable(function () { application.setPanelLayout(panelLayouts[0]); }, function () { return panelLayoutIndex === 0; }),
+            /*2 */ clickable(function () { application.setPanelLayout(panelLayouts[1]); }, function () { return panelLayoutIndex === 1; }),
+            /*3 */ clickable(function () { application.setPanelLayout(panelLayouts[2]); }, function () { return panelLayoutIndex === 2; }),
             /*4 */ clickObservable(arranger.areEffectTracksVisible()),
             /*5 */ clickObservable(arranger.isClipLauncherVisible()),
             /*6 */ clickObservable(arranger.isTimelineVisible()),
@@ -617,10 +649,10 @@ function KeyLab() {
 
             this.onHold = function (ctrl) {
                 switch (ctrl.index) {
-                    case 0: panelLayoutIndex == 2 ? application.toggleDevices() : application.toggleNoteEditor(); return;
-                    case 1: panelLayoutIndex == 2 ? application.toggleMixer() : application.toggleAutomationEditor(); return;
+                    case 0: panelLayoutIndex === 2 ? application.toggleDevices() : application.toggleNoteEditor(); return;
+                    case 1: panelLayoutIndex === 2 ? application.toggleMixer() : application.toggleAutomationEditor(); return;
                     case 2: if (panelLayoutIndex < 2) application.toggleDevices(); return;
-                    case 3: if (panelLayoutIndex == 0) application.toggleMixer(); return;
+                    case 3: if (panelLayoutIndex === 0) application.toggleMixer(); return;
                     case 4: arranger.hasDoubleRowTrackHeight().toggle(); return;
                     case 5: cDevice.browseToInsertBeforeDevice(); return;
                     case 6: cDevice.browseToReplaceDevice(); return;
@@ -825,15 +857,15 @@ function KeyLab() {
                     }
 
                     switch (ctrl.type) {
-                        case "Mode": if (data2 == 0) mode.onMode(ctrl.name == "Multi"); return;
-                        case "Bank": if (data2 == 0) mode.onBank(ctrl.bank); return;
+                        case "Mode": if (data2 === 0) mode.onMode(ctrl.name === "Multi"); return;
+                        case "Bank": if (data2 === 0) mode.onBank(ctrl.bank); return;
                         case "Volume": mode.onVolume(data2 - 64); return;
                         case "Fader": mode.onFader(ctrl, data2); return;
                         case "Knob": mode.onEncoder(ctrl, data2 - 64); return;
                         case "Pad": mode.onPad(ctrl, data2 > 0); return;
                         case "Button":
-                            if (data1 == ctrl.config[3]) {
-                                if (data2 == 0)
+                            if (data1 === ctrl.config[3]) {
+                                if (data2 === 0)
                                     mode.onClick(ctrl);
                             }
                             else if (data2 > 0)
@@ -843,8 +875,8 @@ function KeyLab() {
                             switch (ctrl.name) {
                                 case "Param": mode.onParam(data2 - 64); return;
                                 case "Value": mode.onValue(data2 - 64); return;
-                                case "Param Click": if (data2 == 0) mode.onParamClick(); return;
-                                case "Value Click": if (data2 == 0) mode.onValueClick(); return;
+                                case "Param Click": if (data2 === 0) mode.onParamClick(); return;
+                                case "Value Click": if (data2 === 0) mode.onValueClick(); return;
                             }
                             break;
                     }
@@ -854,7 +886,7 @@ function KeyLab() {
 
     host.getMidiInPort(0).setSysexCallback(
         function (data) {
-            if (data.substring(0, 4) == "f07f" && data.substring(6, 8) == "06") {
+            if (data.substring(0, 4) === "f07f" && data.substring(6, 8) === "06") {
                 var ctrl = mmcMap[data.substring(8, 10)];
                 if (ctrl !== undefined)
                     switch (ctrl.name) {
