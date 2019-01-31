@@ -1,9 +1,7 @@
 var kL = null;
 
-
 // Ideas:
 // 1. Implement split keyboard mode
-// 2. Change sound mode so that remote controls active when remote controls page shown.
 
 
 function unCamelCase(str) {
@@ -12,6 +10,7 @@ function unCamelCase(str) {
         .replace(/\b([A-Z]+)([A-Z])([a-z])/, '$1 $2$3')                 // space before last upper in a sequence followed by lower
         .replace(/^./, function (str) { return str.toUpperCase(); });   // uppercase the first character
 }
+
 
 function KeyLab() {
     var kL = this;
@@ -905,10 +904,6 @@ function KeyLab() {
     sendSysex("F0 00 20 6B 7F 42 02 00 40 02 7F F7");
     for (var i = 0; i < allControls.length; i++)
         allControls[i].configure();
-    //host.scheduleTask(allControls[i].configure, [], 20 * i);
-
-    //host.scheduleTask(setMode, [SOUND_MODE], 2000);
-    //setMode(MULTI_MODE);
 
     return this;
 }
