@@ -13,7 +13,7 @@ function unCamelCase(str) {
 
 
 function KeyLab() {
-    var kL = this;
+    //var kL = this;
 
     var midiInKeys = this.midiInKeys = host.getMidiInPort(0).createNoteInput("Keys", "80????", "90????", "B001??", "B002??", "B00B??", "B040??", "C0????", "D0????", "E0????");
     this.midiInKeys.setShouldConsumeEvents(true);  // Disable the consuming of events by the NoteInputs, so they are also sent to onMidi
@@ -26,28 +26,46 @@ function KeyLab() {
     }
 
     var midiOut = host.getMidiOutPort(0);
-    var sendSysex = function (sysex) { midiOut.sendSysex(sysex); };
-    var sendKlSysex = function (sysex) { midiOut.sendSysex("F0 00 20 6B 7F 42 " + sysex + "F7"); };
 
-    var loadMemory = function (preset) { sendKlSysex("05 " + uint7ToHex(preset)); };
-    var saveMemory = function (preset) { sendKlSysex("06 " + uint7ToHex(preset)); };
-    var getValue = function (id, cmd) { sendKlSysex("01 00 " + uint7ToHex(cmd) + uint7ToHex(id)); };
-    var setValue = function (id, cmd, val) { sendKlSysex("02 00 " + uint7ToHex(cmd) + uint7ToHex(id) + uint7ToHex(val)); };
+	const sysexPreamble = "F0 00 20 6B 7F 42 ";
+
+	//var sendSysex = function (sysex) { midiOut.sendSysex(sysex); };
+    var sendSysex = (function createQueueingSendSysexFunc() {
+
+		var sysexQueue = [];
+
+		return function doSend(sysex) {
+			if(arguments.length > 0) {
+				sysexQueue = sysexQueue.concat(Array.isArray(sysex) ? sysex : [].slice(arguments));
+			} else {
+				if(sysexQueue.length == 0) return;
+
+				var sysex = sysexQueue.shift();
+
+				if(!sysex.startsWith(sysexPreamble))
+					sysex = sysexPreamble & sysex & "F7";
+
+				midiOut.sendSysex(sysex);
+				println(sysex);
+			}
+			host.ScheduleTask(doSend, [], 1);
+		};
+	})();
+
+    var loadMemory = function (preset) { sendSysex("05 " + uint7ToHex(preset)); };
+    var saveMemory = function (preset) { sendSysex("06 " + uint7ToHex(preset)); };
+    var getValue = function (id, cmd) { sendSysex("01 00 " + uint7ToHex(cmd) + uint7ToHex(id)); };
+    var setValue = function (id, cmd, val) { sendSysex("02 00 " + uint7ToHex(cmd) + uint7ToHex(id) + uint7ToHex(val)); };
 
     var setValues = function (id, config) {
-        var preamble = "F0 00 20 6B 7F 42 02 00 ";
         var cmd = ["01 ", "02 ", "03 ", "04 ", "05 ", "06 ", "40 ", "41 "];
-
         config.forEach(function (cfg, i) {
-            var sysex = preamble + cmd[i] + uint7ToHex(id) + uint7ToHex(cfg) + "F7";
-            host.scheduleTask(sendSysex, [sysex], (id * 8) + (i * 10));
+            sendSysex ("02 00 " + cmd[i] + uint7ToHex(id) + uint7ToHex(cfg));
         });
     };
 
-    var sendTextToKeyLab = function (line1, line2) {
-        var sysex = "F0 00 20 6B 7F 42 04 00 60 01 " + line1.toHex(16) + "00 02 " + line2.toHex(16) + "00 F7";
-        //sendSysex(sysex);
-        host.scheduleTask(sendSysex, [sysex], 5);
+    var setKeylabDisplay = function (line1, line2) {
+        sendSysex("04 00 60 01 " + line1.toHex(16) + "00 02 " + line2.toHex(16) + "00 ");
     };
 
     var setButtonLight = function (index, from, to) {
@@ -56,8 +74,6 @@ function KeyLab() {
         for (var i = from; i <= to; i++)
             controls.buttons[i].isLit = (index === i);
     };
-
-    var sendLongTextToKeyLab = function (heading, longText) {
         longText = unCamelCase(longText);
         if (longText.length > 16) {
             var l1 = "";
@@ -68,14 +84,14 @@ function KeyLab() {
                 else
                     l2 = l2 + _ + " ";
             });
-            sendTextToKeyLab(l1, l2);
+            setKeylabDisplay(l1, l2);
         }
         else {
-            sendTextToKeyLab(heading, longText);
+            setKeylabDisplay(heading, longText);
         }
     };
 
-    var ccMap = [[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], []];
+	var ccMap = [[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], []];
     var mmcMap = {};
     var allControls = [];
 
@@ -114,7 +130,7 @@ function KeyLab() {
                     }
                 }
             };
-            if (typeof bank !== 'undefined') props["bank"] = { value: bank };
+            if (typeof bank  !== 'undefined') props["bank"] = { value: bank };
             if (typeof index !== 'undefined') props["index"] = { value: index };
 
             if (hasLED) {
@@ -251,10 +267,6 @@ function KeyLab() {
         };
     })();
 
-    var moveCursor = function (cursor, inc) {
-        if (cursor !== undefined)
-            inc > 0 ? cursor.selectNext() : cursor.selectPrevious();
-    };
 
     var masterTrack = host.createMasterTrack(0);
     masterTrack.getVolume().setIndication(true);
@@ -283,6 +295,16 @@ function KeyLab() {
     var cTrack = host.createArrangerCursorTrack(3, 4);      // 4 scene slots
     var cDevice = host.createEditorCursorDevice(0);
     var cDeviceSlot = cDevice.getCursorSlot();
+
+	// Object.entries(cDevice).forEach(function(keyVal) {
+
+		// var wrapper = {};
+
+		// //if(property is function and function returns object with addValueObserver)
+		// var name = propName;
+		// prop().addValueObserver(function(_) { wrapper[name] = _;};
+	// });
+
     var deviceIsPlugin = false; cDevice.isPlugin().addValueObserver(function (_) { deviceIsPlugin = _; });
     var deviceIsWindowOpen = false; cDevice.isWindowOpen().addValueObserver(function (_) { deviceIsWindowOpen = _; });
     var deviceName = false; cDevice.name().addValueObserver(function (_) { deviceName = _; });
@@ -305,6 +327,34 @@ function KeyLab() {
     var isPlaying = false;
     var mode = null;
 
+    var moveCursor = function (cursor, inc) {
+        if (cursor !== undefined)
+            inc > 0 ? cursor.selectNext() : cursor.selectPrevious();
+    };
+
+	var moveCursorDevice = function(inc) {
+		if (!cDevice.isEnabled())
+			return;
+
+		if (deviceIsExpanded) {
+			if (inc > 0) {
+				if (deviceSlotExists) {
+					cDevice.selectFirstInSlot(deviceSlotName);
+					return;
+				}
+				//if (cDevice.hasDrumPads().get()) {
+				//    println("Selecting Drumpad");
+				//    cDevice.selectFirstInKeyPad(0x24);
+				//    return;
+				//}
+			}
+		}
+		if (deviceIsNested && !(inc > 0 ? deviceHasNext : deviceHasPrevious))
+			cDevice.selectParent();
+
+		inc > 0 ? cDevice.selectNext() : cDevice.selectPrevious();
+	};
+
     var setModeActual = function (value) {
         if (value !== mode) {
             if (mode !== null) {
@@ -315,7 +365,7 @@ function KeyLab() {
             if (mode !== null) {
                 mode.active = true;
                 mode.setIndication();
-                sendTextToKeyLab(value.name, "");
+                setKeylabDisplay(value.name, "");
                 //host.showPopupNotification(value.name);
             }
         }
@@ -355,7 +405,7 @@ function KeyLab() {
                     midiInPads.setKeyTranslationTable(padTranslation);
                     var prefix = (padOffset >= 0) ? " +" : " ";
                     host.showPopupNotification("Drum Pad Bank:" + prefix + padOffset);
-                    sendTextToKeyLab("Drum Pad Bank:", prefix + padOffset);
+                    setKeylabDisplay("Drum Pad Bank:", prefix + padOffset);
                 }
             },
             "padsLaunchSlots": {
@@ -483,7 +533,7 @@ function KeyLab() {
             this.onValue = function (inc) {
                 if (this.bank === 1) {
                     moveCursor(cDevice, inc);
-                    sendTextToKeyLab("Device:", cDevice.name().get());
+                    setKeylabDisplay("Device:", cDevice.name().get());
                 }
             };
             this.onValueClick = function () {
@@ -499,26 +549,8 @@ function KeyLab() {
                             return;
 
                         case 9:
-                            if (!cDevice.isEnabled())
-                                return;
-
-                            if (deviceIsExpanded) {
-                                if (inc > 0) {
-                                    if (deviceSlotExists) {
-                                        cDevice.selectFirstInSlot(deviceSlotName);
-                                        return;
-                                    }
-                                    //if (cDevice.hasDrumPads().get()) {
-                                    //    println("Selecting Drumpad");
-                                    //    cDevice.selectFirstInKeyPad(0x24);
-                                    //    return;
-                                    //}
-                                }
-                            }
-                            if (deviceIsNested && !(inc > 0 ? deviceHasNext : deviceHasPrevious))
-                                cDevice.selectParent();
-
-                            inc > 0 ? cDevice.selectNext() : cDevice.selectPrevious();
+                            if (cDevice.isEnabled())
+								moveCursorDevice(inc);
                             return;
 
                         default:
@@ -554,14 +586,14 @@ function KeyLab() {
                         case 1:
                             setButtonLight(remotePageIndex);
                             if (remotePageIndex >= 0 && remotePageIndex < remotePageNames.length)
-                                sendTextToKeyLab("Remote Control", remotePageNames[remotePageIndex]);
+                                setKeylabDisplay("Remote Control", remotePageNames[remotePageIndex]);
                             break;
                         case 2:
                             setButtonLight(userControlPageIndex);
                             if (userControlPageIndex < userBanks)
-                                sendTextToKeyLab("Sound: User", "Control Page " + (1 + userControlPageIndex));
+                                setKeylabDisplay("Sound: User", "Control Page " + (1 + userControlPageIndex));
                             else
-                                sendTextToKeyLab("Sound: User", "Inc/Dec as CC");
+                                setKeylabDisplay("Sound: User", "Inc/Dec as CC");
                             break;
                     }
                 }
@@ -734,7 +766,7 @@ function KeyLab() {
                 shouldAudition = _;
                 if (_this.active) {
                     controls.buttons[9].isLit = _;
-                    sendTextToKeyLab(_this.name, _ ? "Audition On" : "Audition Off");
+                    setKeylabDisplay(_this.name, _ ? "Audition On" : "Audition Off");
                 }
             });
 
@@ -742,7 +774,7 @@ function KeyLab() {
 
             cResult.addValueObserver(32, "", function (val) {
                 if (_this.active && val && val.length > 0)
-                    sendLongTextToKeyLab(_this.name, val);
+                    setKeylabDisplay(_this.name, val);
             });
 
             var selectFirstResult = function () {
@@ -813,7 +845,7 @@ function KeyLab() {
                     controls.multi.isLit = false;
                     setButtonLight(tabIndex, 0, 5);
                     controls.buttons[9].isLit = shouldAudition;
-                    sendTextToKeyLab(_this.name, "");
+                    setKeylabDisplay(_this.name, "");
                 }
             };
 
@@ -930,7 +962,7 @@ function exit() {
     NRPN                | 04 | CH |  RPN | MIN | MAX | 0 |  |  | x | x |   |       | x |
     RPN                 | 04 | CH | NRPN | MIN | MAX | 1 |  |  | x | x |   |       | x |
     Program Change      | 0B | CH | PROG | LSB | MSB | 1 |  |  |   |   | x |   x   |   |
-    
+
     Where:
             MIN, MAX, ON, OFF   :	Midi cc values from 0 - 0x7F sent by ther control.
             CC, CC1, CC2	      : Midi CC number for normal and long-press respectively.
@@ -943,10 +975,10 @@ function exit() {
     BB (Control ID):    0x40		Mod Wheel
     Note: Buttons get msg 06 & 40 from ctrl center!!!
     Encoders get msgs 1-6 + 40=1 & 41=5  always
-    
-    
+
+
     //IDRequest: "F07E7F0601F7",
     //IDResponse: "F07E00060200206B0200054806000201F7",
-    
+
                 */
 }
