@@ -3,40 +3,9 @@ var kL = null;
 // Ideas:
 // 1. Implement split keyboard mode
 
-function wrapObservableProperties(bitwigObject) {
-	var wrapper = {};
 
-	for (var prop in bitwigObject) {
-		//if (cDevice[prop] instanceof Function) {
-		if (typeof bitwigObject[prop] === 'function')
-		{
-			var obj = bitwigObject[prop]();
-			//if('addValueObserver' in obj)
-			if (obj.hasOwnProperty('addValueObserver')) {
-				println('Adding observer for: ' + prop);
-
-				obj.addValueObserver(function(_) {
-					println('Setting value of ' + prop + ' to ' + _);
-					wrapper[prop] = _;
-				});
-			}
-		}
-	};
-
-	return wrapper;
-};
-
-if(typeof Object.prototype.fromEntries !== "function") {
-	Object.prototype.fromEntries = function(entries) {
-		var result = {};
-		entries.forEach(function(e) { [e[0]] = e[1]; });
-		return result;
-	};
-}
 
 function KeyLab() {
-    //var kL = this;
-
     var midiInKeys = this.midiInKeys = host.getMidiInPort(0).createNoteInput("Keys", "80????", "90????", "B001??", "B002??", "B00B??", "B040??", "C0????", "D0????", "E0????");
     this.midiInKeys.setShouldConsumeEvents(true);  // Disable the consuming of events by the NoteInputs, so they are also sent to onMidi
 
@@ -49,30 +18,26 @@ function KeyLab() {
 
     var midiOut = host.getMidiOutPort(0);
 
-	const sysexPreamble = "F0 00 20 6B 7F 42 ";
+    var scheduleTask = (function createQueueingFunc() {
+        var queueLength = 0;
+        return function sendSysex(fn) {
+            queueLength++;
+            host.scheduleTask(function () {
+                fn();
+                queueLength--;
+            }, null, queueLength * 10);
+        };
+    })();
 
-	//var sendSysex = function (sysex) { midiOut.sendSysex(sysex); };
-    var sendSysex = (function createQueueingSendSysexFunc() {
+    var sendSysex = function sendSysex(sysex) {
+        const sysexPreamble = "F0 00 20 6B 7F 42 ";
+        if (!sysex.startsWith(sysexPreamble))
+            sysex = sysexPreamble + sysex + "F7";
 
-		var sysexQueue = [];
-
-		return function doSend(sysex) {
-			if(arguments.length > 0) {
-				sysexQueue = sysexQueue.concat(Array.isArray(sysex) ? sysex : [].slice(arguments));
-			} else {
-				if(sysexQueue.length == 0) return;
-
-				var sysex = sysexQueue.shift();
-
-				if(!sysex.startsWith(sysexPreamble))
-					sysex = sysexPreamble & sysex & "F7";
-
-				midiOut.sendSysex(sysex);
-				println(sysex);
-			}
-			host.ScheduleTask(doSend, [], 1);
-		};
-	})();
+        scheduleTask(function () {
+            midiOut.sendSysex(sysex);
+        });
+    };
 
     var loadMemory = function (preset) { sendSysex("05 " + uint7ToHex(preset)); };
     var saveMemory = function (preset) { sendSysex("06 " + uint7ToHex(preset)); };
@@ -82,7 +47,7 @@ function KeyLab() {
     var setValues = function (id, config) {
         var cmd = ["01 ", "02 ", "03 ", "04 ", "05 ", "06 ", "40 ", "41 "];
         config.forEach(function (cfg, i) {
-            sendSysex ("02 00 " + cmd[i] + uint7ToHex(id) + uint7ToHex(cfg));
+            sendSysex("02 00 " + cmd[i] + uint7ToHex(id) + uint7ToHex(cfg));
         });
     };
 
@@ -96,29 +61,13 @@ function KeyLab() {
         for (var i = from; i <= to; i++)
             controls.buttons[i].isLit = (index === i);
     };
-        longText = unCamelCase(longText);
-        if (longText.length > 16) {
-            var l1 = "";
-            var l2 = "";
-            longText.split(" ").forEach(function (_) {
-                if ((l1.length + _.length) < 17)
-                    l1 = l1 + _ + " ";
-                else
-                    l2 = l2 + _ + " ";
-            });
-            setKeylabDisplay(l1, l2);
-        }
-        else {
-            setKeylabDisplay(heading, longText);
-        }
-    };
 
-	var ccMap = [[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], []];
-	var mmcMap = {};
+    var ccMap = [[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], []];
+    var mmcMap = {};
     var allControls = [];
 
     controls = (function () {
-			var defineControl = function (id, type, name, bank, index, hasLED, _config) {
+        var defineControl = function (id, type, name, bank, index, hasLED, _config) {
             var config = [].slice.call(arguments, 6);
             var props = {
                 "id": { value: id },
@@ -134,11 +83,12 @@ function KeyLab() {
 
                         switch (config[0]) {
                             case 5:
-                                ccMap[config[1]][config[4]] = ctrl;  // long press
-                                ccMap[config[1]][config[2]] = ctrl;  // short press
+                                ccMap[config[1]][config[4]] = ctrl;         // long press
+                                ccMap[config[1]][config[2]] = ctrl;         // short press
                                 break;
                             case 1:
                             case 8:
+                                //println("Configuring " + name + " with " + config);
                                 ccMap[config[1]][config[2]] = ctrl;
                                 break;
                             case 7:
@@ -151,7 +101,7 @@ function KeyLab() {
                     }
                 }
             };
-            if (typeof bank  !== 'undefined') props["bank"]  = { value: bank };
+            if (typeof bank !== 'undefined') props["bank"] = { value: bank };
             if (typeof index !== 'undefined') props["index"] = { value: index };
 
             if (hasLED) {
@@ -300,30 +250,21 @@ function KeyLab() {
 
     var preferences = host.getPreferences();
     var application = this.application = host.createApplication();
-
-	var hostActions = function() {
-		var result = {};
+    var hostActions = this.hostActions = new (function () {
         var categories = application.getActionCategories();
         for (var i = 0; i < categories.length; i++) {
-            var thisCat = result[categories[i].getName()] = {};
+            var thisCat = this[categories[i].getName()] = {};
             var actions = categories[i].getActions();
             for (var j = 0; j < actions.length; j++)
                 thisCat[actions[j].getName()] = actions[j];
         }
-	})();
+    })();
 
-    //var cTrack = host.createCursorTrack(3, 0);
     var cTrack = host.createArrangerCursorTrack(3, 4);      // 4 scene slots
-    var cDevice = host.createEditorCursorDevice(0);
+    var cDevice = cTrack.createCursorDevice();
+
+    //var cDevice = host.createEditorCursorDevice(0);
     var cDeviceSlot = cDevice.getCursorSlot();
-
-	//var cursorDevice = wrapObservableProperties(cDevice);
-
-	var deviceName = "";
-	cDevice.name().addValueObserver(function (_) {
-		deviceName = _;
-		setKeylabDisplay("Device:", _);
-	});
 
     var deviceIsPlugin = false; cDevice.isPlugin().addValueObserver(function (_) { deviceIsPlugin = _; });
     var deviceIsWindowOpen = false; cDevice.isWindowOpen().addValueObserver(function (_) { deviceIsWindowOpen = _; });
@@ -333,15 +274,15 @@ function KeyLab() {
     var deviceHasSlots = false; cDevice.hasSlots().addValueObserver(function (_) { deviceHasSlots = _; });
     var deviceHasDrumPads = false; cDevice.hasDrumPads().addValueObserver(function (_) { deviceHasDrumPads = _; });
     var deviceIsExpanded = false; cDevice.isExpanded().addValueObserver(function (_) { deviceIsExpanded = _; });
-	cDevice.isRemoteControlsSectionVisible().markInterested();
-	cDevice.isEnabled().markInterested();
-	cDevice.isExpanded().markInterested();
-
-	var remoteControlsPageNames = [];
-	var cRemote = cDevice.createCursorRemoteControlsPage(8);
-	cRemote.pageNames().addValueObserver(function (_) { remoteControlsPageNames = _; });
-	var cRemoteHasNext = false; cRemote.hasNext().addValueObserver(function (_) { cRemoteHasNext = _; });
-	var cRemoteHasPrevious = false; cRemote.hasPrevious().addValueObserver(function (_) { cRemoteHasPrevious = _; });
+    var deviceExists = false; cDevice.exists().addValueObserver(function (_) { deviceExists = _; });
+    var deviceIsEnabled = false; cDevice.isEnabled().addValueObserver(function (_) { deviceIsEnabled = _; });
+    var deviceName = false; cDevice.name().addValueObserver(function (_) {
+        deviceName = _;
+        setKeylabDisplay("Device:", _);
+        println("Device Name: " + _);
+    });
+    cDevice.isRemoteControlsSectionVisible().markInterested();
+    cDevice.isEnabled().markInterested();
 
     var deviceSlotName = false; cDeviceSlot.name().addValueObserver(function (_) { deviceSlotName = _; });
     var deviceSlotExists = false; cDeviceSlot.exists().addValueObserver(function (_) { deviceSlotExists = _; });
@@ -360,51 +301,50 @@ function KeyLab() {
             inc > 0 ? cursor.selectNext() : cursor.selectPrevious();
     };
 
-	var moveCursorDevice = function(inc) {
-		if (!cDevice.isEnabled())
-			return;
+    var moveCursorDevice = function (inc) {
+        if (!deviceExists)
+            return;
 
-		if (deviceIsExpanded) {
-			if (inc > 0) {
-				if (deviceSlotExists) {
-					cDevice.selectFirstInSlot(deviceSlotName);
-					return;
-				}
-				//if (cDevice.hasDrumPads().get()) {
-				//    println("Selecting Drumpad");
-				//    cDevice.selectFirstInKeyPad(0x24);
-				//    return;
-				//}
-			}
-		}
-		if (deviceIsNested && !(inc > 0 ? deviceHasNext : deviceHasPrevious))
-			cDevice.selectParent();
+        if (deviceIsExpanded) {
+            if (inc > 0) {
+                if (deviceSlotExists) {
+                    cDevice.selectFirstInSlot(deviceSlotName);
+                    return;
+                }
+                //if (cDevice.hasDrumPads().get()) {
+                //    println("Selecting Drumpad");
+                //    cDevice.selectFirstInKeyPad(0x24);
+                //    return;
+                //}
+            }
+        }
+        if (deviceIsNested && !(inc > 0 ? deviceHasNext : deviceHasPrevious))
+            cDevice.selectParent();
 
-		inc > 0 ? cDevice.selectNext() : cDevice.selectPrevious();
-	};
+        inc > 0 ? cDevice.selectNext() : cDevice.selectPrevious();
+        cDevice.selectInEditor();
+    };
 
-    var setMode = (function() {
-		function setModeActual(value) {
-			if (value !== mode) {
-				if (mode !== null) {
-					mode.active = false;
-					mode.setIndication();
-				}
-				mode = value;
-				if (mode !== null) {
-					mode.active = true;
-					mode.setIndication();
-					setKeylabDisplay(value.name, "");
-					//host.showPopupNotification(value.name);
-				}
-			}
-		};
+    var setModeActual = function (value) {
+        if (value !== mode) {
+            if (mode !== null) {
+                mode.active = false;
+                mode.setIndication();
+            }
+            mode = value;
+            if (mode !== null) {
+                mode.active = true;
+                mode.setIndication();
+                setKeylabDisplay(value.name, "");
+                //host.showPopupNotification(value.name);
+            }
+        }
+    };
 
-		return function setMode(value) {
-			setModeActual(value);
-			host.scheduleTask(setModeActual, [value], 10);
-		}
-	})();
+    var setMode = function (value) {
+        setModeActual(value);
+        host.scheduleTask(setModeActual, [value], 10);
+    };
 
     var padOps = new (function () {
         var padOffset = 0;
@@ -476,16 +416,27 @@ function KeyLab() {
     var clickable = function (fnClick, fngetIsOn) { return { onClick: fnClick, getIsOn: fngetIsOn }; };
 
     var createMode = (function () {
-		var _active = false;
 
         var mode_prototype = {
             name: "Global Mode",
             onParamClick: function () { },
             onValueClick: function () { },
             onParam: function (inc) { moveCursor(cTrack, inc); },
-			onValue: function (inc) { moveCursorDevice(cDevice, inc);  },
-            //onValue: function (inc) { inc < 0 ? tracks.scrollTracksUp() : tracks.scrollTracksDown(); },
+            onValue: function (inc) { moveCursorDevice(inc); },
             onVolume: function (inc) { masterTrack.getVolume().inc(inc, 128); },
+            setIndication: function () {
+                if (this.active) {
+                    controls.bank1.isLit = (this.bank & 1) === 1;
+                    controls.bank2.isLit = (this.bank & 2) === 2;
+                    controls.sound.isLit = (this.soundMulti & 1) === 1;
+                    controls.multi.isLit = (this.soundMulti & 2) === 2;
+
+                    var actions = this.buttonActions;
+                    if (actions !== undefined && actions.length > 0)
+                        for (var i = 0; i < actions.length; i++)
+                            controls.buttons[i].isLit = (actions[i] !== undefined && actions[i].getIsOn !== undefined) ? actions[i].getIsOn() : false;
+                }
+            },
             onClick: function (ctrl) {
                 if (this.buttonActions === undefined || this.buttonActions.length === 0) return;
                 var action = this.buttonActions[ctrl.index];
@@ -507,22 +458,8 @@ function KeyLab() {
             },
             bank: 1,
             soundMulti: 0,
-            _buttonActions: [],
-			onActivate: function() {  setIndication(); },
-			onDeactivate: function() {},
-			setIndication: function () {
-                if (this.active) {
-                    controls.bank1.isLit = (this.bank & 1) === 1;
-                    controls.bank2.isLit = (this.bank & 2) === 2;
-                    controls.sound.isLit = (this.soundMulti & 1) === 1;
-                    controls.multi.isLit = (this.soundMulti & 2) === 2;
-
-                    var actions = this.buttonActions;
-                    if (actions !== undefined && actions.length > 0)
-                        for (var i = 0; i < actions.length; i++)
-                            controls.buttons[i].isLit = (actions[i] !== undefined && actions[i].getIsOn !== undefined) ? actions[i].getIsOn() : false;
-                }
-            }
+            active: false,
+            _buttonActions: []
         };
 
         Object.defineProperties(mode_prototype,
@@ -531,20 +468,9 @@ function KeyLab() {
                     get: function () { return this._buttonActions; },
                     set: function (actions) {
                         this._buttonActions = actions;
-                        if (_active) this.setIndication();
+                        if (this.active) this.setIndication();
                     }
-                },
-				"active" : {
-					get : function() { return _active;},
-					set : function(_) {
-						if(_active === _) return;
-						_active = _;
-						if(_)
-							this.onActivate();
-						else
-							this.onDeactivate();
-					}
-				}
+                }
             });
 
         return function (ctor) {
@@ -556,35 +482,35 @@ function KeyLab() {
     var SOUND_MODE = createMode(
         function () {
             var _this = this;
-
             this.soundMulti = 1;
+            var cRemote = cDevice.createCursorRemoteControlsPage(8);
+            var remotePageNames = [];
+            cRemote.pageNames().addValueObserver(function (_) { remotePageNames = _; });
+
+            var userBanks = 9;
+            var uControls = host.createUserControls(100);
+            for (var h = 0; h < userBanks; h++)
+                for (var j = 0; j < 10; j++)
+                    uControls.getControl((h * 10) + j).setLabel("Group " + h + " Knob " + j);
+
             this.name = "Sound Mode";
-
-            var userControlPageCount = 3;
-            var controlsPerUserBank = 8;
-            var uControls = host.createUserControls(userControlPageCount * controlsPerUserBank);
-			var userControlPages = [];
-            var userControlPageIndex = 0;
-
-            for (var h = 0; h < userControlPageCount; h++)
-                for (var j = 0; j < controlsPerUserBank; j++)
-                    userControlPages[h][j] = uControls.getControl((h * controlsPerUserBank) + j);
-
-			userControlPages.foreach(function(bank, bankIndex) {
-				userControlPages[bank].foreach(function(ctrl, ctrlIndex) {
-					ctrl.setLabel("Control " + bankIndex + ":" + ctrlIndex);
-				})
-			});
-
             var remotePageIndex = 0;
+            var userControlPageIndex = 0;
+            var getUserControl = function (index) { return uControls.getControl(index + (10 * userControlPageIndex)); };
 
             this.onParamClick = function () { browser.startBrowsing(); };
-            this.onValue = function (inc) { moveCursorDevice(cDevice, inc);  };
+            this.onValue = function (inc) {
+                moveCursorDevice(inc);
+            };
             this.onValueClick = function () {
                 if (cDevice.isPlugin().get())
                     cDevice.isWindowOpen().toggle();
+                else
+                    cDevice.isExpanded().toggle();
             };
+
             this.onEncoder = function (ctrl, inc) {
+
                 var index = ctrl.index;
                 if (this.bank === 1) {
                     switch (index) {
@@ -593,7 +519,8 @@ function KeyLab() {
                             return;
 
                         case 9:
-							cTrack.getPan().inc(inc, 128);
+                            //if (cDevice.isEnabled())
+                            //    moveCursorDevice(inc);
                             return;
 
                         default:
@@ -601,75 +528,75 @@ function KeyLab() {
                             return;
                     }
                 } else {
-                    switch (index) {
-                        case 4:
-							userControlPageIndex = (userControlPageIndex + inc) % (userControlPageCount + 1);
-                            this.setIndication();
-                            return;
-
-                        case 9:
-							var cc = 0x46 + (2 * index) + (inc > 0 ? 1 : 0);
-							midiInKeys.sendRawMidiEvent(0xB0, cc, 0x7f);
-                            return;
-
-                        default:
-                            if (userControlPageIndex < userControlPageCount)
-								userControlPages[userControlPageIndex][index].inc(inc, 128);
-							else
-							{
-								var cc = 0x46 + (2 * index) + (inc > 0 ? 1 : 0);
-								midiInKeys.sendRawMidiEvent(0xB0, cc, 0x7f);
-							}
-                            return;
+                    if (userControlPageIndex < userBanks)
+                        getUserControl(index).inc(inc, 128);
+                    else {
+                        var cc = 0x46 + (2 * index) + (inc > 0 ? 1 : 0);
+                        midiInKeys.sendRawMidiEvent(0xB0, cc, 0x7f);
                     }
-
                 }
             };
-
-			cRemote.selectedPageIndex().addValueObserver(function (value) {
-                remotePageIndex = value;
-                if (_this.active)
-                    _this.setIndication();
-            });
 
             this.setIndication = function () {
                 Object.getPrototypeOf(this).setIndication.call(this);
                 for (var i = 0; i < 8; i++)
-                    cRemote.getParameter(i).setIndication(_this.active && (_this.bank === 1));
+                    cRemote.getParameter(i).setIndication(this.active && (this.bank === 1));
 
-                for (var h = 0; h < userControlPageCount; h++)
-                    for (var j = 0; j < controlsPerUserBank; j++)
-                        uControls.getControl((h * controlsPerUserBank) + j).setIndication(_this.active && (this.bank === 2) && h === userControlPageIndex);
+                for (var h = 0; h < userBanks; h++)
+                    for (var j = 0; j < 10; j++)
+                        uControls.getControl((h * 10) + j).setIndication(this.active && (this.bank === 2) && h === userControlPageIndex);
 
-                controls.sound.isLit = _this.active;
-                if (_this.active) {
+                controls.sound.isLit = this.active;
+
+                if (this.active) {
                     controls.multi.isLit = false;
-                    controls.bank1.isLit = (_this.bank & 1) === 1;
-                    controls.bank2.isLit = (_this.bank & 2) === 2;
+                    controls.bank1.isLit = (this.bank & 1) === 1;
+                    controls.bank2.isLit = (this.bank & 2) === 2;
 
-                    switch (_this.bank) {
+                    switch (this.bank) {
                         case 1:
-                            if (remotePageIndex >= 0 && remotePageIndex < remoteControlsPageNames.length)
-                                setKeylabDisplay("Remote Controls", remoteControlsPageNames[remotePageIndex]);
-							else
-								setKeylabDisplay("No Remote", "Pages Defined");
+                            if (cDevice.isRemoteControlsSectionVisible().get())
+                                setButtonLight(remotePageIndex);
+                            else
+                                setButtonLight(-1);
+
+                            if (remotePageIndex >= 0 && remotePageIndex < remotePageNames.length)
+                                setKeylabDisplay("Remote Control", remotePageNames[remotePageIndex]);
                             break;
                         case 2:
                             setButtonLight(userControlPageIndex);
-                            if (userControlPageIndex < userControlPageCount)
-                                setKeylabDisplay("User Controls", "Page " + (1 + userControlPageIndex));
+                            if (userControlPageIndex < userBanks)
+                                setKeylabDisplay("Sound: User", "Control Page " + (1 + userControlPageIndex));
                             else
-                                setKeylabDisplay("User Controls", "Inc/Dec as CC");
+                                setKeylabDisplay("Sound: User", "Inc/Dec as CC");
                             break;
                     }
                 }
             };
 
             this.onClick = function (ctrl) {
-				switch (ctrl.index) {
-                    case 0: cDevice.isRemoteControlsSectionVisible().toggle(); return;
-                    case 1: cDevice.isExpanded().toggle(); return;
-                    case 2: cDevice.isEnabled().toggle(); return;
+                var index = ctrl.index;
+                if (this.bank === 1) {
+                    if (remotePageNames.length === 0) {
+                        cDevice.isRemoteControlsSectionVisible().set(true);
+                        setKeylabDisplay("No Remote Pages", "Defined!");
+                    }
+                    else if (index === cRemote.selectedPageIndex().get())
+                        cDevice.isRemoteControlsSectionVisible().toggle();
+                    else if (index < remotePageNames.length)
+                        cRemote.selectedPageIndex().set(index);
+                } else {
+                    userControlPageIndex = ctrl.index;
+                    if (this.active)
+                        this.setIndication();
+                }
+            };
+
+            this.onHold = function (ctrl) {
+                switch (ctrl.index) {
+                    case 0: cDevice.isEnabled().toggle(); return;
+                    case 1: cDevice.isRemoteControlsSectionVisible().toggle(); return;
+                    case 2: cDevice.isExpanded().toggle(); return;
                     case 3: cDevice.browseToInsertAfterDevice(); return;
                     case 4: arranger.hasDoubleRowTrackHeight().toggle(); return;
                     case 5: cDevice.browseToInsertBeforeDevice(); return;
@@ -681,23 +608,11 @@ function KeyLab() {
                 this.setIndication();
             };
 
-            //this.onHold = function (ctrl) {
-            //    switch (ctrl.index) {
-            //        case 0: cDevice.isEnabled().toggle(); return;
-            //        case 1: cDevice.isRemoteControlsSectionVisible().toggle(); return;
-            //        case 2: cDevice.isExpanded().toggle(); return;
-            //        case 3: cDevice.browseToInsertAfterDevice(); return;
-            //        case 4: arranger.hasDoubleRowTrackHeight().toggle(); return;
-            //        case 5: cDevice.browseToInsertBeforeDevice(); return;
-            //        case 6: cDevice.browseToReplaceDevice(); return;
-            //        case 7: cDevice.browseToInsertAfterDevice(); return;
-            //        case 8: padOps.padsLaunchSlots = false; return;
-            //        case 9: padOps.padsLaunchSlots = true; return;
-            //    }
-            //    this.setIndication();
-            //};
-
-
+            cRemote.selectedPageIndex().addValueObserver(function (value) {
+                remotePageIndex = value;
+                if (_this.active)
+                    _this.setIndication();
+            });
         });
 
     var MULTI_MODE = createMode(
@@ -928,15 +843,15 @@ function KeyLab() {
             this.bank = 0;
         });
 
-    var transport = host.createTransport();
-    transport.isArrangerLoopEnabled().addValueObserver(function (isLoopOn) { controls.loop.isLit = isLoopOn; });
-    transport.isArrangerRecordEnabled().addValueObserver(function (isRecordActive) { controls.record.isLit = isRecordActive; });
+    var transport = this.transport = host.createTransport();
     transport.isPlaying().addValueObserver(
         function (playing) {
             isPlaying = playing;
             controls.play.isLit = playing;
             controls.stop.isLit = !playing;
         });
+    transport.isArrangerLoopEnabled().addValueObserver(function (isLoopOn) { controls.loop.isLit = isLoopOn; });
+    transport.isArrangerRecordEnabled().addValueObserver(function (isRecordActive) { controls.record.isLit = isRecordActive; });
 
     host.getMidiInPort(0).setMidiCallback(
         function (status, data1, data2) {
@@ -964,7 +879,6 @@ function KeyLab() {
                             else if (data2 > 0)
                                 mode.onHold(ctrl);
                             return;
-
                         case "Other":
                             switch (ctrl.name) {
                                 case "Param": mode.onParam(data2 - 64); return;
@@ -996,9 +910,13 @@ function KeyLab() {
         }
     );
 
+    setKeylabDisplay("Configuring", "Keylab");
     sendSysex("F0 00 20 6B 7F 42 02 00 40 02 7F F7");
     for (var i = 0; i < allControls.length; i++)
         allControls[i].configure();
+
+    scheduleTask(function () { setMode(SOUND_MODE); });
+    setKeylabDisplay("Welcome to", "Bitwig");
 
     return this;
 }
