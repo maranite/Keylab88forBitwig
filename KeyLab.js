@@ -470,7 +470,7 @@ function KeyLab() {
             host.scheduleTask(observable.notify, [], 500);
             host.scheduleTask(observable.notify, [], 1000);
         }
-    };
+    }
 
     var transport = host.createTransport();
     transport.isArrangerLoopEnabled().addValueObserver(function (_) { setAndEchoIsLit(controls.loop.isLit, _); });

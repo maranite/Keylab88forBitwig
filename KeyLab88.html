@@ -25,6 +25,10 @@
         <div id="illustration">
             <img src="KeyLab88.png" width="1234" height="342" alt="KeyLab 88" border="0" />
         </div>
+        <div>
+            The behavior of all knobs and switches is configured in Bitwig under the controller settings.<br />
+            Only hard-coded behaviors are shown below.
+        </div>
         <div id="legend">
             <div id="global" class="legend-section">
                 <div id="global" class="legend-column">
@@ -39,31 +43,16 @@
                                 <td class="legend-explanation-column">Master track volume</td>
                             </tr>
                             <tr>
-                                <td class="legend-control-column">Param</td>
-                                <td class="legend-explanation-column">Move between tracks. Click to launch or exit browser</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">Value</td>
+                                <td class="legend-control-column">Sound / Multi</td>
                                 <td class="legend-explanation-column">
-                                    Sound Mode: <br>Move between devices.<br>
-                                    Click to show/hide plugin window.
-                                    <br><br>
-                                    Browsing: <br>Navigates browser results, click applies result to current track.
+                                    Selects Arrange/Mix/Edit mode.<br /><br />
+                                    Arrange Mode: Press Sound.<br />
+                                    Mix Mode: Press Multi.<br />
+                                    Edit Mode: Press Sound+Multi<br />
+                                    Pressing either button once in the selected mode will show/hide the devices panel.
                                 </td>
                             </tr>
-                            <tr>
-                                <td class="legend-control-column">Sound</td>
-                                <td class="legend-explanation-column">
-                                    Arranger/Sound mode.<br><br>
-                                    Bank 1:<br>Remote control mode.<br>
-                                    Bank 2:<br>User control mode.
-                                </td>
-                            </tr>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">Multi</td>
-                                <td class="legend-explanation-column">Mix/Multi mode</td>
-                            </tr>
+                          
                             <tr>
                                 <td class="legend-control-column">F1-9</td>
                                 <td class="legend-explanation-column">Volume for tracks 1-9</td>
@@ -106,249 +95,9 @@
                     </table>
                 </div>
             </div>
-            <div id="banks" class="legend-section">
-                <div id="bank-1-sound" class="legend-column">
-                    <table class="legend-column">
-                        <tbody>
-                            <tr>
-                                <th class="legend-control-column"></th>
-                                <th class="legend-explanation-column">SOUND MODE</th>
-                            </tr>
-                            <tr>
-                                <th class="legend-control-column">Bank 1:</th>
-                                <th class="legend-explanation-column"></th>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">P1-4<br>P6-9</td>
-                                <td class="legend-explanation-column">Device Remote controls 1-8 in for selected remote control page</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">P5, S1-10</td>
-                                <td class="legend-explanation-column">Select remote control page</td>
-                            </tr>
-                            <tr>
-                                <th class="legend-control-column"><br /><br />Bank 2:</th>
-                                <th class="legend-explanation-column"></th>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">P1-10</td>
-                                <td class="legend-explanation-column">User controls 1-10 for selected control group</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">S1-9</td>
-                                <td class="legend-explanation-column">Select user control group</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">S10</td>
-                                <td class="legend-explanation-column">CC mode.<br>In this mode, left and right knob turns send different MIDI CC messages to the selected plugin</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-                <div id="bank-1-multi" class="legend-column">
-                    <table class="legend-column">
-                        <tbody>
-                            <tr>
-                                <th class="legend-control-column"></th>
-                                <th class="legend-explanation-column">MULTI MODE</th>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">P1</td>
-                                <td class="legend-explanation-column">Pan selected track</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">P2-4</td>
-                                <td class="legend-explanation-column">Track sends 1-3</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">P6</td>
-                                <td class="legend-explanation-column">Current time</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">P7+8</td>
-                                <td class="legend-explanation-column">Loop start + end</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">P9</td>
-                                <td class="legend-explanation-column">Project tempo</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">S1</td>
-                                <td class="legend-explanation-column">Toggle Inspector</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">S2</td>
-                                <td class="legend-explanation-column">Arrange Layout</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">S3</td>
-                                <td class="legend-explanation-column">Mix Layout</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">S3</td>
-                                <td class="legend-explanation-column">Edit Layout</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">S8</td>
-                                <td class="legend-explanation-column">Double Track Height</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">S9/10</td>
-                                <td class="legend-explanation-column">Transpose Drumpads</td>
-                            </tr>
-
-                            <tr>
-                                <th class="legend-control-column"></th>
-                                <th class="legend-explanation-column"><br />In Arrange Layout:</th>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">S5</td>
-                                <td class="legend-explanation-column">Toggle Effects Tracks</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">S6</td>
-                                <td class="legend-explanation-column">Toggle Clip Launcher</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">S7</td>
-                                <td class="legend-explanation-column">Toggle Arrange Timeline</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">S1 (hold)</td>
-                                <td class="legend-explanation-column">Toggle Note Editor</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">S2 (hold)</td>
-                                <td class="legend-explanation-column">Toggle Automation Panel</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">S3 (hold)</td>
-                                <td class="legend-explanation-column">Toggle Device Panel</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">S4 (hold)</td>
-                                <td class="legend-explanation-column">Toggle Mixer Panel</td>
-                            </tr>
-
-                            <tr>
-                                <th class="legend-control-column"></th>
-                                <th class="legend-explanation-column"><br />In Mix Layout:</th>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">S5</td>
-                                <td class="legend-explanation-column">Toggle I/O Sections</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">S6</td>
-                                <td class="legend-explanation-column">Toggle Clip Section</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">S7</td>
-                                <td class="legend-explanation-column">Toggle Device Section</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">S1 (hold)</td>
-                                <td class="legend-explanation-column">Toggle Note Editor</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">S2 (hold)</td>
-                                <td class="legend-explanation-column">Toggle Automation Panel</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">S3 (hold)</td>
-                                <td class="legend-explanation-column">Toggle Device Panel</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-
-            <div id="browser" class="legend-section">
-                <div id="browser-mode" class="legend-column">
-                    <table class="legend-column">
-                        <tbody>
-                            <tr>
-                                <th class="legend-control-column"></th>
-                                <th class="legend-explanation-column">BROWSING</th>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">Value</td>
-                                <td class="legend-explanation-column">Select Results</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">Value Click</td>
-                                <td class="legend-explanation-column">OK (Confirm Selection)</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">Param Click</td>
-                                <td class="legend-explanation-column">Cancel Browsing</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">Param / P1</td>
-                                <td class="legend-explanation-column">Select Location</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">P2</td>
-                                <td class="legend-explanation-column">Select Device</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">P3</td>
-                                <td class="legend-explanation-column">Select Category</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">P4</td>
-                                <td class="legend-explanation-column">Select Tags</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">P5</td>
-                                <td class="legend-explanation-column">Select Creator/Author</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">P6</td>
-                                <td class="legend-explanation-column">Select Smart Location</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">P7</td>
-                                <td class="legend-explanation-column">Select Device Type</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">P8</td>
-                                <td class="legend-explanation-column">Select File Type</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">P10 / S1-5</td>
-                                <td class="legend-explanation-column">
-                                    Select Content Type:<br />
-                                    Device, Preset, Sample, Multisample, Music
-                                </td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">S7</td>
-                                <td class="legend-explanation-column">Delete Preset</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">S8</td>
-                                <td class="legend-explanation-column">Reveal File</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">S9</td>
-                                <td class="legend-explanation-column">Edit Metadata</td>
-                            </tr>
-                            <tr>
-                                <td class="legend-control-column">S10</td>
-                                <td class="legend-explanation-column">Toggle audition mode</td>
-                            </tr>
-                        </tbody>
-                    </table>
-
-                </div>
-            </div>
-
-
         </div>
         <div id="footer">
-            Version Nr: 2.0 | Made by: Mark White| Contact: <a href="mailto:maranite@gmail.com">maranite@gmail.com</a>
+            Version : 2.0 | Made by: Mark White| Contact: <a href="mailto:maranite@gmail.com">maranite@gmail.com</a>
         </div>
     </div>
 </body>
