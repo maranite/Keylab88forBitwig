@@ -531,13 +531,23 @@ function KeyLab() {
         }
 
         // Creates an action that responds to a clickable control 
-        function ClickAction(name, click, addObserver) {
+        function ClickAction(name, click, addValueObserver) {
             Object.defineProperties(this, { "name": { value: name } });
             var bindings = this.bindings = [];
-            this.click = click;
 
-            if (typeof addObserver === 'function') {
-                addObserver(function setLED(value) {
+            if (typeof click.toggle === 'function') {
+                this.click = function (_) { click.toggle(); };
+
+                if (typeof addValueObserver === 'undefined' && typeof click.addValueObserver === 'function')
+                    click.addValueObserver(function setLED(value) {
+                        bindings.forEach(function (binding) { binding.setLED(value); });
+                    });
+            }
+            else 
+                this.click = click;
+
+            if (typeof addValueObserver === 'function') {
+                addValueObserver(function setLED(value) {
                     bindings.forEach(function (binding) { binding.setLED(value); });
                 });
             }
@@ -716,7 +726,6 @@ function KeyLab() {
                     cDevice.isWindowOpen().addValueObserver(function (_) { if (deviceIsPlugin) fnSet(_); });
                     cDevice.isExpanded().addValueObserver(function (_) { if (!deviceIsPlugin) fnSet(_); });
                 }),
-            new ClickAction("Show Macros Panel", cDevice.isMacroSectionVisible()),
             new ClickAction("Show Remote Controls", cDevice.isRemoteControlsSectionVisible()),
             new ClickAction("Next Remote Page", function () { cRemote.selectNextPage(true); }),
             new ClickAction("Prev Remote Page", function () { cRemote.selectPreviousPage(true); }),
