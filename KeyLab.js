@@ -1041,7 +1041,7 @@ function KeyLab() {
                         case "Mode":
                             if (popup.exists().get())
                                 popup.cancel();		// Cancel any browsing session
-
+                            ctrl.onMidi(status, data1, data2);
                             if (data2 > 0) {
                                 selectEditModeOnRelease = controls.multi.isPressed.get() && controls.sound.isPressed.get();
                             } else {
