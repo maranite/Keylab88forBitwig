@@ -455,6 +455,7 @@ function KeyLab() {
 
     application.panelLayout().addValueObserver(function (value) {
         panelLayoutName = value;
+        println("Panel Layout: " + value);
         panelLayoutIndex = panelLayouts.indexOf(value);
         mode.set(value.toProperCase());
     });
