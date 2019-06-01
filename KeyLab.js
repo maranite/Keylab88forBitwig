@@ -1,11 +1,6 @@
 var kL = null;
 
-// Ideas:
-// 1. Implement split keyboard mode
-// 2: Implement generic shift-mode pattern for Bank buttons
-// 3. Implement Blinking lights state (on each quarter beat).
-
-function Observable(value, max, min) {
+function Observable(value, max, min, name) {
     var observers = [];
     this.addValueObserver = function (observer) {
         observers.push(observer);
@@ -18,9 +13,11 @@ function Observable(value, max, min) {
         notify();
     };
     this.get = function () { return value; };
-    this.set = function (_) {
-        if (value !== _) {
-            value = _;
+    this.set = function (newValue) {
+        if (value !== newValue) {
+            if (typeof name === "string")
+                println("Observable " + name + " set to " + newValue);
+            value = newValue;
             if (typeof max !== 'undefined' && value > max)
                 value = max;
             if (typeof min !== 'undefined' && value < min)
@@ -52,6 +49,14 @@ function objectFromArray(array) {
     return result;
 }
 
+var flushQueue = [];
+
+function flush() {
+    while (flushQueue.length > 0)
+        flushQueue.shift()();
+}
+
+
 function KeyLab() {
     var midiInKeys = this.midiInKeys = host.getMidiInPort(0).createNoteInput("Keys", "80????", "90????", "B001??", "B002??", "B00B??", "B040??", "C0????", "D0????", "E0????");
     this.midiInKeys.setShouldConsumeEvents(true);  // Disable the consuming of events by the NoteInputs, so they are also sent to onMidi
@@ -65,26 +70,14 @@ function KeyLab() {
 
     var midiOut = host.getMidiOutPort(0);
 
-    var scheduleTask = (function createQueueingFunc() {
-        var queueLength = 0;
-        return function scheduleTask(fn) {
-            queueLength++;
-            host.scheduleTask(function () {
-                fn();
-                queueLength--;
-            }, null, queueLength * 10);
-        };
-    })();
-
     var sendSysex = function sendSysex(sysex) {
         const sysexPreamble = "F0 00 20 6B 7F 42 ";
         if (!sysex.startsWith(sysexPreamble))
             sysex = sysexPreamble + sysex + "F7";
 
-        scheduleTask(function () {
-            //println("SYSEX: " + sysex);
-            midiOut.sendSysex(sysex);
-        });
+        var sender = function () { midiOut.sendSysex(sysex); };
+
+        flushQueue.push(sender);
     };
 
     var loadMemory = function (preset) { sendSysex("05 " + uint7ToHex(preset)); };
@@ -96,7 +89,7 @@ function KeyLab() {
         config.forEach(function (cfg, i) {
             sendSysex("02 00 " + cmd[i] + uint7ToHex(id) + uint7ToHex(cfg));
         });
-    };
+    }   ;
 
     var setKeylabDisplay = function (line1, line2) {
         sendSysex("04 00 60 01 " + (line1 || "").toHex(16) + "00 02 " + (line2 || "").toHex(16) + "00 ");
@@ -112,7 +105,7 @@ function KeyLab() {
     function Binding(control) {
         var enabled = false;
         var isLit = false;
-        var action = null;
+        var action = undefined;
         var fnSetIsLit = (typeof control.isLit === 'object' && typeof control.isLit.set === 'function') ? control.isLit.set : function (_) { };
 
         Object.defineProperties(this, {
@@ -135,7 +128,10 @@ function KeyLab() {
                     if (enabled !== value) {
                         enabled = value;
 
-                        if (action !== null && typeof action.setIndication === 'function')
+                        if (typeof action === "undefined" || action === null)
+                            return;
+
+                        if (typeof action.setIndication === 'function')
                             action.setIndication(value);
 
                         if (value) {
@@ -159,9 +155,10 @@ function KeyLab() {
         });
 
         this.setLED = function (value) {
-            if (typeof value === 'boolean') isLit = value;
-            if (typeof control.isLit === 'object')
-                control.isLit.set(isLit);
+            if (typeof value === 'boolean') {
+                isLit = value;
+                fnSetIsLit(value);
+            }
         };
     }
 
@@ -187,15 +184,13 @@ function KeyLab() {
                                 ccMap[config[1]][config[2]] = this;
                                 break;
                             case 7:
-                                mmcMap[uint7ToHex(config[2]).trim()] = this;
+                                mmcMap[config[2].toString(16)] = this;
                                 break;
                         }
 
-                        scheduleTask(function () {
-                            setValues(id, config);
-                            if (id === 0x6E)
-                                setValues(0x0A, config);
-                        });
+                        setValues(id, config);
+                        if (id === 0x6E)
+                            setValues(0x0A, config);
                     }
                 }
             });
@@ -221,7 +216,6 @@ function KeyLab() {
             var isLit = new Observable(false);
             Object.defineProperties(this, { "isLit": { value: isLit } });
             var id = this.id;
-            //this.setLED = function () { setValue(id, 0x10, isLit.get() ? 1 : 0); };
             isLit.addValueObserver(function (lit) { setValue(id, 0x10, lit ? 1 : 0); });
         }
 
@@ -277,10 +271,6 @@ function KeyLab() {
             AnyControl.call(this, id, "Fader", "F" + index + " (Bank " + bank + ")", 1, 0, cc, 0, 0x7F, 1);
             Object.defineProperty(this, "index", { value: index });
             Object.defineProperty(this, "bank", { value: bank });
-            //this.onMidi = function onMidi(status, data1, data2) {
-            //    if (this.action !== null && typeof this.action.set === 'function')
-            //        this.action.set(data2);
-            //};
         }
 
         function Pad(id, index, note) {
@@ -439,8 +429,8 @@ function KeyLab() {
 
     var popup = host.createPopupBrowser();
 
-    var bank = new Observable(1);
-    var mode = new Observable("Arrange");		// valid values: Arrange, Mix, Edit, Browse
+    var bank = new Observable(1, undefined, undefined, "BANK");
+    var mode = new Observable("Arrange", undefined, undefined, "MODE");		// valid values: Arrange, Mix, Edit, Browse
 
     popup.exists().addValueObserver(function (browsing) {
         if (browsing)
@@ -460,22 +450,9 @@ function KeyLab() {
         mode.set(value.toProperCase());
     });
 
-    var modeBank = new Observable();
-    bank.addValueObserver(function (value) { modeBank.set(mode.get() + value); });
-    mode.addValueObserver(function (value) { modeBank.set(value + bank.get()); });
-
-    function setAndEchoIsLit(observable, value) {
-        observable.set(value);
-        if (value) {
-            host.scheduleTask(observable.notify, [], 100);
-            host.scheduleTask(observable.notify, [], 500);
-            host.scheduleTask(observable.notify, [], 1000);
-        }
-    }
-
     var transport = host.createTransport();
-    transport.isArrangerLoopEnabled().addValueObserver(function (_) { setAndEchoIsLit(controls.loop.isLit, _); });
-    transport.isArrangerRecordEnabled().addValueObserver(function (_) { setAndEchoIsLit(controls.record.isLit, _); });
+    transport.isArrangerLoopEnabled().addValueObserver(controls.loop.isLit.set);
+    transport.isArrangerRecordEnabled().addValueObserver(controls.record.isLit.set);
     transport.isPlaying().addValueObserver(function (playing) {
         controls.play.isLit.set(playing);
         controls.stop.isLit.set(!playing);
@@ -512,72 +489,6 @@ function KeyLab() {
 
     var actions = new (function CreateActions() {
 
-        // Creates an Action appropriate for Knob controls
-        function KnobAction(name, fnInc) {
-            Object.defineProperty(this, "name", { value: name });
-            var bindings = this.bindings = [];
-            if (typeof fnInc.inc === 'function') {
-                this.inc = function (_) { fnInc.inc(_, 128); };
-
-                if (typeof fnInc.setIndication == 'function') {
-                    var indicationcount = 0;
-                    this.setIndication = function (_) {
-                        indicationcount += _ ? 1 : -1;
-                        fnInc.setIndication(indicationcount > 0);
-                    };
-                }
-            }
-            else
-                this.inc = fnInc;
-        }
-
-        // Creates an action that responds to a clickable control 
-        function ClickAction(name, click, addValueObserver) {
-            Object.defineProperties(this, { "name": { value: name } });
-            var bindings = this.bindings = [];
-
-            if (typeof click.toggle === 'function') {
-                this.click = function (_) { click.toggle(); };
-
-                if (typeof addValueObserver === 'undefined' && typeof click.addValueObserver === 'function')
-                    click.addValueObserver(function setLED(value) {
-                        bindings.forEach(function (binding) { binding.setLED(value); });
-                    });
-            }
-            else 
-                this.click = click;
-
-            if (typeof addValueObserver === 'function') {
-                addValueObserver(function setLED(value) {
-                    bindings.forEach(function (binding) { binding.setLED(value); });
-                });
-            }
-        }
-
-        // Creates an action that responds to a clickable control for toggle properties
-        function OnOffAction(name, toggleProperty) {
-            ClickAction.call(this, name,
-                function () { toggleProperty.toggle(); },
-                function (setLED) { toggleProperty.addValueObserver(setLED); }
-            );
-        }
-
-        // Creates an action that responds to a clickable control for properties where the click activates a specific property value 
-        function RangeAction(name, prop, value) {
-            ClickAction.call(this, name,
-                function () { prop.set(value); },
-                function (setLED) { prop.addValueObserver(function (_) { setLED(_ === value); }); });
-        }
-
-        var userBanks = 10;
-        var uControls = host.createUserControls(userBanks * 8);
-        for (var h = 0; h < userBanks; h++)
-            for (var j = 0; j < 8; j++)
-                uControls.getControl((h * 8) + j).setLabel("Group " + h + " Knob " + j);
-
-        var userControlPageIndex = new Observable(0, userBanks);
-        var getUserControl = function (index) { return uControls.getControl(index + (8 * userControlPageIndex.get())); };
-
         function cycleDeviceVisibility() {
             if (cDevice.isPlugin().get()) {
                 cDevice.isWindowOpen().toggle();
@@ -613,7 +524,7 @@ function KeyLab() {
         function moveAndSelect(cursor, inc) {
             moveCursor(cursor, inc);
             if (autoSelectFirstResult)
-                scheduleTask(function () {
+                flushQueue.push(function () {
                     hostActions.Browser["Focus Browser File List"].invoke();
                     hostActions["Selection Navigation"]["Select first item"].invoke();
                 });
@@ -633,8 +544,8 @@ function KeyLab() {
                     ctrl.config = [9, 9, 0x24 + i, 0x20, 0x7F, 1];     // Pads: Midi note mode
             });
 
-            for (var r = 0; r < 4; r++)
-                padTrackBank.getTrack(r).clipLauncherSlotBank().setIndication(value === "Launcher");
+            //for (var r = 0; r < 4; r++)
+            //    padTrackBank.getTrack(r).clipLauncherSlotBank().setIndication(value === "Launcher");
         });
 
         var padsOffset = new Observable(0, -48, 64);
@@ -649,65 +560,66 @@ function KeyLab() {
             setKeylabDisplay("Pad Offset:" + value < 0 ? "-" : "" + value);
         });
 
-        //var clipSlotObservers = [];
-        //for (var i = 0; i < padBankSize; i++) {
-        //	var o = [new Observable("stopped"),new Observable("stopped"),new Observable("stopped"),new Observable("stopped")];
-        //	var track = padTrackBank.getTrack(i);
-        //	var launcherBank = track.clipLauncherSlotBank();
-        //	launcherBank.addPlaybackStateObserver(
-        //		function (slotIndex, playbackState, isQueued) {					
-        //			o[slotIndex].set(isQueued ? "queued" : playbackState);
-        //		});
-        //		
-        //	clipSlotObservers.push(o);			
-        //}
-        //
-        //// Creates an action that responds to a clickable control 
-        //function ClipLauncherAction(name, trackOffset, clipOffset) {
-        //	Object.defineProperties(this, { "name": { value: name } });
-        //	var bindings = this.bindings = [];
-        //	
-        //	var obs = clipSlotObservers[trackOffset][clipOffset];
-        //
-        //	this.click = function() {
-        //		
-        //		var state = obs.get();
-        //		if(state === "stopped")
-        //		{}	
-        //		
-        //	};
-        //
-        //
-        //	if (typeof addObserver === 'function') {
-        //		addObserver(function setLED(value) {
-        //				bindings.forEach(function (binding) { binding.setLED(value); });
-        //			});
-        //	}
-        //}
+        // Creates an Action appropriate for Knob controls
+        function KnobAction(name, fnInc) {
+            Object.defineProperty(this, "name", { value: name });
+            var bindings = this.bindings = [];
+            if (typeof fnInc.inc === 'function') {
+                this.inc = function (_) { fnInc.inc(_, 128); };
+
+                if (typeof fnInc.setIndication === 'function') {
+                    var indicationcount = 0;
+                    this.setIndication = function (_) {
+                        indicationcount = Math.max(0, indicationcount + _ ? 1 : -1);
+                        fnInc.setIndication(indicationcount > 0);
+                    };
+                }
+            }
+            else if (typeof fnInc === 'function')
+                this.inc = fnInc;
+            else
+                println("Configuration error on KnobAction " + name);
+        }
+
+        // Creates an action that responds to a clickable control 
+        function ClickAction(name, handler, valueOrObserver) {
+            var bindings = this.bindings = [];
+            var setLit = function setLit(value) { bindings.forEach(function (binding) { binding.setLED(value); }); };
+
+            Object.defineProperties(this, { "name": { value: name } });
+
+            if (typeof handler.addValueObserver === 'function') {  // if an observable has been passed
+                if (typeof handler.set === 'function' && (typeof valueOrObserver === "number" || typeof valueOrObserver === "string")) {
+
+                    this.click = function (_) { handler.set(valueOrObserver); };
+                    handler.addValueObserver(function setLED(value) {
+                        setLit(value === valueOrObserver);
+                    });
+                }
+                else if (typeof handler.toggle === 'function') {
+
+                    this.click = function (_) { handler.toggle(); };
+                    handler.addValueObserver(setLit);
+                } else
+                    println("Coding error on ClickAction " + name + "  - handle is observable, but has no set or toggle");
+            } else {
+                this.click = handler;
+                if (typeof valueOrObserver === 'function')
+                    valueOrObserver(setLit);
+            }
+        }
 
         this.noButtonAction = new ClickAction("---Off---", function () { });
 
-        this.buttonActions = objectFromArray([
+
+        var actionItems = [
             this.noButtonAction,
-            new ClickAction("Arrange", function () { application.setPanelLayout(panelLayouts[0]); }, function (fnSet) { application.panelLayout().addValueObserver(function (_) { fnSet(_ === panelLayouts[0]); }); }),
-            new ClickAction("Mix", function () { application.setPanelLayout(panelLayouts[1]); }, function (fnSet) { application.panelLayout().addValueObserver(function (_) { fnSet(_ === panelLayouts[1]); }); }),
-            new ClickAction("Edit", function () { application.setPanelLayout(panelLayouts[2]); }, function (fnSet) { application.panelLayout().addValueObserver(function (_) { fnSet(_ === panelLayouts[2]); }); }),
-            new ClickAction("Next Layout", function () { application.setPanelLayout(panelLayouts[(panelLayoutIndex + 1) % panelLayouts.length]); }),
-            new ClickAction("Previous Layout", function () { application.setPanelLayout(panelLayouts[(panelLayouts.length + panelLayoutIndex - 1) % panelLayouts.length]); }),
             new ClickAction("Inspector", function () { application.toggleInspector(); }),
             new ClickAction("Devices", function () { application.toggleDevices(); }),
             new ClickAction("Note Editor", function () { application.toggleNoteEditor(); }),
             new ClickAction("Automation", function () { application.toggleAutomationEditor(); }),
             new ClickAction("Mixer", function () { application.toggleMixer(); }),
-
             new ClickAction("Duplicate", function () { application.duplicate(); }),
-            // new ClickAction("Cut", function () { application.cut(); }),
-            // new ClickAction("Copy", function () { application.copy(); }),
-            // new ClickAction("Paste", function () { application.paste(); }),
-            // new ClickAction("Enter", function () { application.enter(); }),
-            // new ClickAction("Escape", function () { application.escape(); }),
-            // new ClickAction("Select All", function () { application.selectAll(); }),
-            // new ClickAction("Select None", function () { application.selectNone(); }),
             new ClickAction("Undo", function () { application.undo(); }),
             new ClickAction("Redo", function () { application.redo(); }),
             new ClickAction("Zoom In", function () { application.zoomIn(); }),
@@ -717,9 +629,8 @@ function KeyLab() {
             new ClickAction("New Audio Track", function () { application.createAudioTrack(-1); }),
             new ClickAction("New Effect Track", function () { application.createEffectTrack(-1); }),
             new ClickAction("New Instrument Track", function () { application.createInstrumentTrack(-1); }),
-
-            new OnOffAction("Show Plugin", cDevice.isWindowOpen()),
-            new OnOffAction("Expand Device", cDevice.isExpanded()),
+            new ClickAction("Show Plugin", cDevice.isWindowOpen()),
+            new ClickAction("Expand Device", cDevice.isExpanded()),
             new ClickAction("Expand <-> Remote", function () { cycleDeviceVisibility(); }),
             new ClickAction("Expand/Show Device",
                 function () { (deviceIsPlugin ? cDevice.isWindowOpen() : cDevice.isExpanded()).toggle(); },
@@ -730,45 +641,25 @@ function KeyLab() {
             new ClickAction("Show Remote Controls", cDevice.isRemoteControlsSectionVisible()),
             new ClickAction("Next Remote Page", function () { cRemote.selectNextPage(true); }),
             new ClickAction("Prev Remote Page", function () { cRemote.selectPreviousPage(true); }),
-            new RangeAction("Remote Page 1", cRemote.selectedPageIndex(), 0),
-            new RangeAction("Remote Page 2", cRemote.selectedPageIndex(), 1),
-            new RangeAction("Remote Page 3", cRemote.selectedPageIndex(), 2),
-            new RangeAction("Remote Page 4", cRemote.selectedPageIndex(), 3),
-            new RangeAction("Remote Page 5", cRemote.selectedPageIndex(), 4),
-            new RangeAction("Remote Page 6", cRemote.selectedPageIndex(), 5),
-            new RangeAction("Remote Page 7", cRemote.selectedPageIndex(), 6),
-            new RangeAction("Remote Page 8", cRemote.selectedPageIndex(), 7),
-            new RangeAction("Remote Page 9", cRemote.selectedPageIndex(), 8),
-            new RangeAction("Remote Page 10", cRemote.selectedPageIndex(), 9),
-            new RangeAction("User Page 1", userControlPageIndex, 0),
-            new RangeAction("User Page 2", userControlPageIndex, 1),
-            new RangeAction("User Page 3", userControlPageIndex, 2),
-            new RangeAction("User Page 4", userControlPageIndex, 3),
-            new RangeAction("User Page 5", userControlPageIndex, 4),
-            new RangeAction("User Page 6", userControlPageIndex, 5),
-            new RangeAction("User Page 7", userControlPageIndex, 6),
-            new RangeAction("User Page 8", userControlPageIndex, 7),
-            new RangeAction("User Page 9", userControlPageIndex, 8),
-            new RangeAction("User Page 10", userControlPageIndex, 9),
-            new OnOffAction("Arranger: Show Cue Markers", arranger.areCueMarkersVisible()),
-            new OnOffAction("Arranger: FX Tracks", arranger.areEffectTracksVisible()),
-            new OnOffAction("Arranger: Clip Launcher", arranger.isClipLauncherVisible()),
-            new OnOffAction("Arranger: Timeline", arranger.isTimelineVisible()),
-            new OnOffAction("Arranger: Big Rows", arranger.hasDoubleRowTrackHeight()),
-            new OnOffAction("Arranger: Follow Playback", arranger.isPlaybackFollowEnabled()),
-            new OnOffAction("Mixer: Meters", mixer.isMeterSectionVisible()),
-            new OnOffAction("Mixer: Sends", mixer.isSendSectionVisible()),
-            new OnOffAction("Mixer: I/O", mixer.isIoSectionVisible()),
-            new OnOffAction("Mixer: Devices", mixer.isDeviceSectionVisible()),
-            new OnOffAction("Mixer: Clip Launcher", mixer.isClipLauncherSectionVisible()),
+
+            new ClickAction("Arranger: Show Cue Markers", arranger.areCueMarkersVisible()),
+            new ClickAction("Arranger: FX Tracks", arranger.areEffectTracksVisible()),
+            new ClickAction("Arranger: Clip Launcher", arranger.isClipLauncherVisible()),
+            new ClickAction("Arranger: Timeline", arranger.isTimelineVisible()),
+            new ClickAction("Arranger: Big Rows", arranger.hasDoubleRowTrackHeight()),
+            new ClickAction("Arranger: Follow Playback", arranger.isPlaybackFollowEnabled()),
+            new ClickAction("Mixer: Meters", mixer.isMeterSectionVisible()),
+            new ClickAction("Mixer: Sends", mixer.isSendSectionVisible()),
+            new ClickAction("Mixer: I/O", mixer.isIoSectionVisible()),
+            new ClickAction("Mixer: Devices", mixer.isDeviceSectionVisible()),
+            new ClickAction("Mixer: Clip Launcher", mixer.isClipLauncherSectionVisible()),
             new ClickAction("Browse", function () { browser.startBrowsing(); }),
             new ClickAction("Browse Replace", function () { cDevice.browseToInsertBeforeDevice(); }),
             new ClickAction("Browse Insert Before", function () { cDevice.browseToReplaceDevice(); }),
             new ClickAction("Browse Insert After", function () { cDevice.browseToInsertAfterDevice(); }),
-
-            new RangeAction("Automation Mode: Latch", transport.automationWriteMode(), "latch"),
-            new RangeAction("Automation Mode: Touch", transport.automationWriteMode(), "touch"),
-            new RangeAction("Automation Mode: Write", transport.automationWriteMode(), "write"),
+            new ClickAction("Automation Mode: Latch", transport.automationWriteMode(), "latch"),
+            new ClickAction("Automation Mode: Touch", transport.automationWriteMode(), "touch"),
+            new ClickAction("Automation Mode: Write", transport.automationWriteMode(), "write"),
             new ClickAction("Metronome", transport.isMetronomeEnabled()),
             new ClickAction("Metronome Tick Playback", transport.isMetronomeTickPlaybackEnabled()),
             new ClickAction("Punch In", transport.isPunchInEnabled()),
@@ -776,20 +667,69 @@ function KeyLab() {
             new ClickAction("Track: Arm", cTrack.getArm()),
             new ClickAction("Track: Monitor", cTrack.getMonitor()),
             new ClickAction("Track: Auto Monitor", cTrack.getAutoMonitor()),
-            //new RangeAction("Pads Launch Clips", padsMode, "Launcher"),
-            //new RangeAction("Pads Play Notes", padsMode, "Pads"),
             new ClickAction("Pads: Page Up", function () { padsMode.get() === "Launcher" ? padTrackBank.scrollScenesUp() : padOffset.inc(-16); }),
             new ClickAction("Pads: Page Down", function () { padsMode.get() === "Launcher" ? padTrackBank.scrollScenesDown() : padOffset.inc(16); })
-        ]);
+        ];
+
+        var noKnobAction = this.noKnobAction = new KnobAction("---Off---", function () { });
+
+        var knobActs = [
+            this.noKnobAction,
+            new KnobAction("Select Track", function (_) { moveCursor(cTrack, _); }),
+            new KnobAction("Select Device", function (_) { moveCursorDevice(_); }),
+            new KnobAction("Select Sub-Panel", function (_) { inc > 0 ? application.nextSubPanel() : application.previousSubPanel(); }),
+            new KnobAction("Send MIDI CC +/-", function (_) { midiInKeys.sendRawMidiEvent(0xB0, 0x46 + (2 * index) + (_ > 0 ? 1 : 0), 0x7f); }),
+            new KnobAction("Track Pan", function (_) { cTrack.getPan().inc(_); }),
+            new KnobAction("Track Send 1", cTrack.getSend(0)),
+            new KnobAction("Track Send 2", cTrack.getSend(1)),
+            new KnobAction("Track Send 3", cTrack.getSend(2)),
+            new KnobAction("Shuttle Transport", function (inc) { transport.incPosition(inc, true); }),
+            new KnobAction("In Position", function (inc) { transport.getInPosition().incRaw(inc); }),
+            new KnobAction("Out Position", function (inc) { transport.getOutPosition().incRaw(inc); }),
+            new KnobAction("Tempo", function (inc) { transport.tempo().inc(inc, 128); }),
+            new KnobAction("Scroll Scene", function (inc) { inc > 0 ? padTrackBank.scrollScenesDown() : padTrackBank.scrollScenesUp(); }),
+            new KnobAction("Metronome Volume", transport.metronomeVolume())
+        ];
+
+        for (var i = 1; i <= 10; i++)
+            actionItems.push(new ClickAction("Remote Page " + i, cRemote.selectedPageIndex(), i - 1));
+
+        for (i = 1; i <= 8; i++)
+            knobActs.push(new KnobAction("Remote Control " + i, cRemote.getParameter(i - 1)));
+
+
+        //var userPages = 4;
+        //var uControls = host.createUserControls(userPages * 8);
+        //var userControlPageIndex = new Observable(0, userPages);
+        //function getUControl(index, page) {
+        //    page = page || userControlPageIndex.get();
+        //    return uControls.getControl((page * 8) + index);
+        //}
+
+        //for (var userPageIndex = 0; userPageIndex < userPages; userPageIndex++) {
+        //    for (var j = 0; j < 8; j++)
+        //        uControls.getControl((userPageIndex * 8) + j).setLabel("Group " + (1+userPageIndex) + " Knob " + (1+j));
+
+        //    actionItems.push(new ClickAction("User Page " + (1 + userPageIndex), userControlPageIndex, userPageIndex));
+        //}
+
+        //var getUserControl = function (index) { return uControls.getControl(index + (8 * userControlPageIndex.get())); };
+        //for (i = 1; i <= 8; i++)
+        //    knobActs.push(new KnobAction("User Control " + i, getUserControl(i - 1)));
+
+
+
+        this.buttonActions = objectFromArray(actionItems);
+        this.knobActions = objectFromArray(knobActs);
 
         this.browseActions = objectFromArray([
             this.noButtonAction,
-            new RangeAction("Browser Tab 1", popup.selectedContentTypeIndex(), 0),
-            new RangeAction("Browser Tab 2", popup.selectedContentTypeIndex(), 1),
-            new RangeAction("Browser Tab 3", popup.selectedContentTypeIndex(), 2),
-            new RangeAction("Browser Tab 4", popup.selectedContentTypeIndex(), 3),
-            new RangeAction("Browser Tab 5", popup.selectedContentTypeIndex(), 4),
-            new OnOffAction("Audition On/Off", popup.shouldAudition()),
+            new ClickAction("Browser Tab 1", popup.selectedContentTypeIndex(), 0),
+            new ClickAction("Browser Tab 2", popup.selectedContentTypeIndex(), 1),
+            new ClickAction("Browser Tab 3", popup.selectedContentTypeIndex(), 2),
+            new ClickAction("Browser Tab 4", popup.selectedContentTypeIndex(), 3),
+            new ClickAction("Browser Tab 5", popup.selectedContentTypeIndex(), 4),
+            new ClickAction("Audition On/Off", popup.shouldAudition()),
             new ClickAction("Delete Preset", function () { hostActions.General["Reveal File"].invoke(); }),
             new ClickAction("Edit Metadata", function () { hostActions.General["Edit File Metadata..."].invoke(); }),
             new ClickAction("Cancel", function () { popup.cancel(); }),
@@ -802,45 +742,6 @@ function KeyLab() {
                 hostActions.General.Yes.invoke();
                 hostActions.Browser["Focus Browser File List"].invoke();
             })
-        ]);
-
-        var noKnobAction = this.noKnobAction = new KnobAction("---Off---", function () { });
-
-        this.knobActions = objectFromArray([
-            this.noKnobAction,
-            new KnobAction("Select Track", function (_) { moveCursor(cTrack, _); }),
-            new KnobAction("Select Device", function (_) { moveCursorDevice(_); }),
-            new KnobAction("Select Sub-Panel", function (_) { inc > 0 ? application.nextSubPanel() : application.previousSubPanel(); }),
-            new KnobAction("Remote Control Page", function (_) { inc > 0 ? cRemote.selectNextPage(true) : cRemote.selectPreviousPage(true); }),
-            new KnobAction("User Control Page", userControlPageIndex),
-            new KnobAction("Send MIDI CC +/-", function (_) { midiInKeys.sendRawMidiEvent(0xB0, 0x46 + (2 * index) + (_ > 0 ? 1 : 0), 0x7f); }),
-            new KnobAction("Track Pan", function (_) { cTrack.getPan(127); }),
-            new KnobAction("Track Send 1", cTrack.getSend(0)),
-            new KnobAction("Track Send 2", cTrack.getSend(1)),
-            new KnobAction("Track Send 3", cTrack.getSend(2)),
-            new KnobAction("Shuttle Transport", function (_) { transport.incPosition(inc, true); }),
-            new KnobAction("In Position", function (_) { transport.getInPosition().incRaw(inc); }),
-            new KnobAction("Out Position", function (_) { transport.getOutPosition().incRaw(inc); }),
-            new KnobAction("Tempo", function (_) { transport.increaseTempo(inc, 647); }),
-            new KnobAction("Scroll Scene", function (_) { inc > 0 ? padTrackBank.scrollScenesDown() : padTrackBank.scrollScenesUp(); }),
-            new KnobAction("Remote Control 1", cRemote.getParameter(0)),
-            new KnobAction("Remote Control 2", cRemote.getParameter(1)),
-            new KnobAction("Remote Control 3", cRemote.getParameter(2)),
-            new KnobAction("Remote Control 4", cRemote.getParameter(3)),
-            new KnobAction("Remote Control 5", cRemote.getParameter(4)),
-            new KnobAction("Remote Control 6", cRemote.getParameter(5)),
-            new KnobAction("Remote Control 7", cRemote.getParameter(6)),
-            new KnobAction("Remote Control 8", cRemote.getParameter(7)),
-            new KnobAction("User Control 1", getUserControl(0)),
-            new KnobAction("User Control 2", getUserControl(1)),
-            new KnobAction("User Control 3", getUserControl(2)),
-            new KnobAction("User Control 4", getUserControl(3)),
-            new KnobAction("User Control 5", getUserControl(4)),
-            new KnobAction("User Control 6", getUserControl(5)),
-            new KnobAction("User Control 7", getUserControl(6)),
-            new KnobAction("User Control 8", getUserControl(7)),
-
-            new KnobAction("Metronome Volume", transport.metronomeVolume())
         ]);
 
         this.browseKnobActions = (function () {
@@ -879,10 +780,8 @@ function KeyLab() {
 
     (function setupAllModes() {
 
-        var offInitials = ["---Off---", "---Off---", "---Off---", "---Off---", "---Off---", "---Off---", "---Off---", "---Off---", "---Off---", "---Off---"];
         var buttonTemplate = {
             actions: actions.buttonActions,
-            fallback: actions.noButtonAction,
             controls: controls.buttons,
             names: ["Button S01", "Button S02", "Button S03", "Button S04", "Button S05", "Button S06", "Button S07", "Button S08", "Button S09", "Button S10"],
             initials: ["---Off---", "---Off---", "---Off---", "---Off---", "---Off---", "---Off---", "---Off---", "---Off---", "---Off---", "---Off---"]
@@ -890,7 +789,6 @@ function KeyLab() {
 
         var pvButtonTemplate = {
             actions: actions.buttonActions,
-            fallback: actions.noButtonAction,
             controls: [controls.paramButton, controls.valueButton],
             names: ["Param Click", "Value Click"],
             initials: ["Browse", "Expand/Show Device"]
@@ -898,17 +796,20 @@ function KeyLab() {
 
         var knob1Template = {
             actions: actions.knobActions,
-            fallback: actions.noKnobAction,
             controls: controls.knobs.filter(function (ctrl) { return ctrl.bank === 1; }),
             names: ["Knob P01", "Knob P02", "Knob P03", "Knob P04", "Knob P05", "Knob P06", "Knob P07", "Knob P08", "Knob P09", "Knob P10"],
             initials: ["---Off---", "---Off---", "---Off---", "---Off---", "---Off---", "---Off---", "---Off---", "---Off---", "---Off---", "---Off---"]
         };
 
-        var knob2Template = Object.setPrototypeOf({ controls: controls.knobs.filter(function (ctrl) { return ctrl.bank === 2; }) }, knob1Template);
+        var knob2Template = {
+            actions: actions.knobActions,
+            controls: controls.knobs.filter(function (ctrl) { return ctrl.bank === 2; }),
+            names: ["Knob P01", "Knob P02", "Knob P03", "Knob P04", "Knob P05", "Knob P06", "Knob P07", "Knob P08", "Knob P09", "Knob P10"],
+            initials: ["---Off---", "---Off---", "---Off---", "---Off---", "---Off---", "---Off---", "---Off---", "---Off---", "---Off---", "---Off---"]
+        };
 
         var pvKnobTemplate = {
             actions: actions.knobActions,
-            fallback: actions.noKnobAction,
             controls: [controls.param, controls.value],
             names: ["Param", "Value"],
             initials: ["Select Track", "Select Device"]
@@ -929,24 +830,55 @@ function KeyLab() {
 
                 var setting = prefs[i % prefs.length];
 
-                //var setting = preferences.getEnumSetting(
-                //	template.names[i],
-                //	section,
-                //	allActions,
-                //	template.initials[i] || fallback.name);
-
                 var binding = new Binding(control);
-                setting.addValueObserver(function (name) { binding.action = actions[name] || fallback; });
-                observable.addValueObserver(function (value) { binding.enabled = (value === enabledValue); });
+                setting.addValueObserver(function (name) { binding.action = actions[name]; });
+                observable.addValueObserver(function (value) { binding.enabled = value === enabledValue; });
             });
-        };
+        }
 
-        createPreferenceSet("Arrange Mode", mode, "Arrange", pvKnobTemplate, {});
-        createPreferenceSet("Arrange Mode", mode, "Arrange", pvButtonTemplate, {});
-        createPreferenceSet("Mix Mode", mode, "Mix", pvKnobTemplate, {});
-        createPreferenceSet("Mix Mode", mode, "Mix", pvButtonTemplate, {});
-        createPreferenceSet("Edit Mode", mode, "Edit", pvKnobTemplate, {});
-        createPreferenceSet("Edit Mode", mode, "Edit", pvButtonTemplate, {});
+        var setupArrange = createPreferenceSet.bind(null, "Arrange Mode", mode, "Arrange");
+        var setupMix = createPreferenceSet.bind(null, "Mix Mode", mode, "Mix");
+        var setupEdit = createPreferenceSet.bind(null, "Edit Mode", mode, "Edit");
+
+        setupArrange(pvKnobTemplate, {});
+        setupArrange(pvButtonTemplate, {});
+        setupArrange(buttonTemplate, {
+            initials: ["Remote Page 1", "Remote Page 2", "Remote Page 3", "Remote Page 4", "Remote Page 5", "Remote Page 6", "Remote Page 7", "Remote Page 8", "Remote Page 9", "Remote Page 10"]
+        });
+
+        setupMix(pvKnobTemplate, {});
+        setupMix(pvButtonTemplate, {});
+        setupMix(buttonTemplate, {
+            initials: ["Browse Replace", "Expand <-> Remote", "Inspector", "Devices", "Note Editor", "Toggle Automation", "Toggle Mixer", "Device: Macros Panel", "Device: Remote Controls", "Next Remote Page", "Prev Remote Page", "Arranger: Big Rows", "Layout:Arrange", "Layout:Mix", "Layout:Edit"]
+        });
+
+        setupEdit(pvKnobTemplate, {});
+        setupEdit(pvButtonTemplate, {});
+        setupEdit(buttonTemplate, {
+            initials: ["Browse Replace", "Expand <-> Remote", "Inspector", "Devices", "Note Editor", "Toggle Automation", "Toggle Mixer", "Device: Macros Panel", "Device: Remote Controls", "Next Remote Page", "Prev Remote Page", "Arranger: Big Rows", "Layout:Arrange", "Layout:Mix", "Layout:Edit"]
+        });
+
+        createPreferenceSet("Arrange: Bank 1", mode, "Arrange", knob1Template, {
+            initials: ["Remote Control 1", "Remote Control 2", "Remote Control 3", "Remote Control 4", "Shuttle Transport", "Remote Control 5", "Remote Control 6", "Remote Control 7", "Remote Control 8", "Tempo"]
+        });
+        createPreferenceSet("Arrange: Bank 2", mode, "Arrange", knob2Template, {
+            initials: ["Remote Control 1", "Remote Control 2", "Remote Control 3", "Remote Control 4", "Shuttle Transport", "Remote Control 5", "Remote Control 6", "Remote Control 7", "Remote Control 8", "Tempo"]
+        });
+
+        createPreferenceSet("Mix Mode: Bank 1", mode, "Mix", knob1Template, {
+            initials: ["Track Pan", "Track Send 1", "Track Send 2", "Track Send 3", "Shuttle Transport", "In Position", "Out Position", "Scroll Scene", "---Off---", "Tempo"]
+        });
+        createPreferenceSet("Mix Mode: Bank 2", mode, "Mix", knob2Template, {
+            initials: ["Track Pan", "Track Send 1", "Track Send 2", "Track Send 3", "Shuttle Transport", "In Position", "Out Position", "Scroll Scene", "---Off---", "Tempo"]
+        });
+        createPreferenceSet("Edit: Bank 1", mode, "Edit", knob1Template, {
+            initials: ["Track Pan", "Track Send 1", "Track Send 2", "Track Send 3", "Shuttle Transport", "In Position", "Out Position", "Scroll Scene", "---Off---", "Tempo"]
+        });
+        createPreferenceSet("Edit: Bank 2", mode, "Edit", knob2Template, {
+            initials: ["Track Pan", "Track Send 1", "Track Send 2", "Track Send 3", "Shuttle Transport", "In Position", "Out Position", "Scroll Scene", "---Off---", "Tempo"]
+        });
+
+
 
         createPreferenceSet("Browsing", mode, "Browse", pvKnobTemplate, {
             initials: ["Scroll Category", "Scroll Result"],
@@ -966,44 +898,6 @@ function KeyLab() {
             initials: ["Scroll Location", "Scroll Device", "Scroll Category", "Scroll Tag", "Scroll Creator", "Scroll Collection", "Scroll Device Type", "Scroll File Type", "Scroll Result", "Content Tab"]
         });
 
-        createPreferenceSet("Arrange: Buttons: Bank 1", modeBank, "Arrange1", buttonTemplate, {
-            initials: ["Remote Page 1", "Remote Page 2", "Remote Page 3", "Remote Page 4", "Remote Page 5", "Remote Page 6", "Remote Page 7", "Remote Page 8", "Remote Page 9", "Remote Page 10"]
-        });
-        createPreferenceSet("Arrange: Buttons: Bank 2", modeBank, "Arrange2", buttonTemplate, {
-            initials: ["User Page 1", "User Page 2", "User Page 3", "User Page 4", "User Page 5", "User Page 6", "User Page 7", "User Page 8", "User Page 9", "User Page 10"]
-        });
-        createPreferenceSet("Arrange: Knobs: Bank 1", modeBank, "Arrange1", knob1Template, {
-            initials: ["Remote Control 1", "Remote Control 2", "Remote Control 3", "Remote Control 4", "Shuttle Transport", "Remote Control 5", "Remote Control 6", "Remote Control 7", "Remote Control 8", "Tempo"]
-        });
-        createPreferenceSet("Arrange: Knobs: Bank 2", modeBank, "Arrange2", knob2Template, {
-            initials: ["User Control 1", "User Control 2", "User Control 3", "User Control 4", "Shuttle Transport", "User Control 5", "User Control 6", "User Control 7", "User Control 8", "Tempo"]
-        });
-
-        createPreferenceSet("Mix: Buttons: Bank 1", modeBank, "Mix1", knob1Template, {
-            initials: ["Track Pan", "Track Send 1", "Track Send 2", "Track Send 3", "Shuttle Transport", "In Position", "Out Position", "Scroll Scene", "---Off---", "Tempo"]
-        });
-        createPreferenceSet("Mix: Buttons: Bank 2", modeBank, "Mix2", buttonTemplate, {
-            initials: ["Arranger: Show FX Tracks", "Arranger: Clip Launcher", "Arranger: Show Timeline", "Mixer: Meters", "Mixer: Sends", "Mixer: I/O", "Mixer: Devices", "Mixer: Clip Launcher", "Browse Replace"]
-        });
-        createPreferenceSet("Mix: Knobs: Bank 1", modeBank, "Mix1", buttonTemplate, {
-            initials: ["Browse Replace", "Expand <-> Remote", "Inspector", "Devices", "Note Editor", "Toggle Automation", "Toggle Mixer", "Device: Macros Panel", "Device: Remote Controls", "Next Remote Page", "Prev Remote Page", "Arranger: Big Rows", "Layout:Arrange", "Layout:Mix", "Layout:Edit"]
-        });
-        createPreferenceSet("Mix: Knobs: Bank 2", modeBank, "Mix2", knob2Template, {
-            initials: ["Track Pan", "Track Send 1", "Track Send 2", "Track Send 3", "Shuttle Transport", "In Position", "Out Position", "Scroll Scene", "---Off---", "Tempo"]
-        });
-
-        createPreferenceSet("Edit: Buttons: Bank 1", modeBank, "Edit1", buttonTemplate, {
-            initials: ["Browse Replace", "Expand <-> Remote", "Inspector", "Devices", "Note Editor", "Toggle Automation", "Toggle Mixer", "Device: Macros Panel", "Device: Remote Controls", "Next Remote Page", "Prev Remote Page", "Arranger: Big Rows", "Layout:Arrange", "Layout:Mix", "Layout:Edit"]
-        });
-        createPreferenceSet("Edit: Buttons: Bank 2", modeBank, "Edit2", buttonTemplate, {
-            initials: ["Arranger: Show FX Tracks", "Arranger: Clip Launcher", "Arranger: Show Timeline", "Mixer: Meters", "Mixer: Sends", "Mixer: I/O", "Mixer: Devices", "Mixer: Clip Launcher", "Browse Replace"]
-        });
-        createPreferenceSet("Edit: Knobs: Bank 1", modeBank, "Edit1", knob1Template, {
-            initials: ["Track Pan", "Track Send 1", "Track Send 2", "Track Send 3", "Shuttle Transport", "In Position", "Out Position", "Scroll Scene", "---Off---", "Tempo"]
-        });
-        createPreferenceSet("Edit: Knobs: Bank 2", modeBank, "Edit2", knob2Template, {
-            initials: ["Track Pan", "Track Send 1", "Track Send 2", "Track Send 3", "Shuttle Transport", "In Position", "Out Position", "Scroll Scene", "---Off---", "Tempo"]
-        });
     })();
 
     var selectEditModeOnRelease = false;
@@ -1053,7 +947,6 @@ function KeyLab() {
                                 } else if (ctrl === controls.sound) {
                                     if (panelLayoutName === "ARRANGE")
                                         application.toggleDevices();
-                                    //application.toggleInspector();
                                     else
                                         application.setPanelLayout("ARRANGE");
                                 } else if (ctrl === controls.multi) {
@@ -1097,10 +990,7 @@ function KeyLab() {
         controls.bank2.isLit = _ === 2;
     });
 
-
-
     setKeylabDisplay("Welcome to", "Bitwig");
-    scheduleTask(function () { bank.set(1); });
 
     return this;
 }
@@ -1127,7 +1017,7 @@ function exit() {
     NRPN                | 04 | CH |  RPN | MIN | MAX | 0 |  |  | x | x |   |       | x |
     RPN                 | 04 | CH | NRPN | MIN | MAX | 1 |  |  | x | x |   |       | x |
     Program Change      | 0B | CH | PROG | LSB | MSB | 1 |  |  |   |   | x |   x   |   |
-
+ 
     Where:
             MIN, MAX, ON, OFF   :	Midi cc values from 0 - 0x7F sent by ther control.
             CC, CC1, CC2	      : Midi CC number for normal and long-press respectively.
@@ -1140,11 +1030,11 @@ function exit() {
     BB (Control ID):    0x40		Mod Wheel
     Note: Buttons get msg 06 & 40 from ctrl center!!!
     Encoders get msgs 1-6 + 40=1 & 41=5  always
-
-
+ 
+ 
     //IDRequest: "F07E7F0601F7",
     //IDResponse: "F07E00060200206B0200054806000201F7",
-
+ 
                 */
 }
 
